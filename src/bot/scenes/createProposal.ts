@@ -230,14 +230,14 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
           });
 
           // 3. Format message for the group
-          const typeHeader = proposal.type === 'BUY' ? '📥 #خرید_ارز' : '📤 #فروش_ارز';
+          const typeHeader = proposal.type === 'BUY' ? '🟢 #خرید_ارز' : '🔴 #فروش_ارز';
           const userMention = from.username 
             ? `@${from.username}` 
             : `<a href="tg://user?id=${from.id}">${from.first_name}</a>`;
 
           const groupMsgText =
             `📢 <b>پیشنهاد جدید معاملاتی</b>\n\n` +
-            `<blockquote><b>${typeHeader}</b></blockquote>\n` +
+            `<b>${typeHeader}</b>\n\n` +
             `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
             `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
             `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +

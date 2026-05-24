@@ -180,8 +180,7 @@ bot.on('callback_query', async (ctx) => {
       // Update the message in the group to show it is cancelled
       if (prop.groupMessageId) {
         const updatedGroupText =
-          `❌ <b>پیشنهاد لغو شد</b>\n\n` +
-          `<blockquote><b>#لغو_شده</b></blockquote>\n` +
+          `<b>❌ #پیشنهاد_لغو_شد</b>\n\n` +
           `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
           `🔹 <b>مقدار:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
           `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n` +

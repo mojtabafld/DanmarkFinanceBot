@@ -212,8 +212,7 @@ export async function handleDealCallbacks(ctx: Context) {
       // 5. Update the Group message to reflect status
       if (proposal.groupMessageId) {
         const updatedGroupText =
-          `🤝 <b>معامله انجام شد (بسته شد)</b>\n\n` +
-          `<blockquote><b>#بسته_شده</b></blockquote>\n` +
+          `<b>🤝 #معامله_بسته_شد</b>\n\n` +
           `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
           `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
           `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
