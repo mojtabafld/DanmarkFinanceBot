@@ -59,8 +59,15 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
 
       await ctx.answerCbQuery();
       await ctx.reply(
-        'نام ارز مورد نظر را وارد کنید (مثال: USD, EUR, USDT, تتر):',
-        Markup.keyboard([['انصراف']]).oneTime().resize()
+        'ارز مورد نظر خود را انتخاب کنید:',
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback('🇩🇰 DKK (کرون دانمارک)', 'SELECT_CURR_DKK'),
+            Markup.button.callback('🇪🇺 EUR (یورو)', 'SELECT_CURR_EUR'),
+            Markup.button.callback('🇺🇸 USD (دلار آمریکا)', 'SELECT_CURR_USD')
+          ],
+          [Markup.button.callback('❌ انصراف', 'CANCEL_WIZARD')]
+        ])
       );
       return ctx.wizard.next();
     }
@@ -69,23 +76,36 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
     await ctx.reply('لطفاً یکی از دکمه‌های بالا را جهت تعیین نوع پیشنهاد انتخاب کنید.');
   },
 
-  // Step 3: Handle Currency & Ask for Amount
+  // Step 3: Handle Currency selection & Ask for Amount
   async (ctx) => {
-    if ('text' in ctx.message!) {
-      const text = ctx.message.text.trim();
-      if (text === 'انصراف' || text === '/cancel') {
-        await ctx.reply('❌ ثبت پیشنهاد لغو شد.', Markup.removeKeyboard());
+    if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
+      const data = ctx.callbackQuery.data;
+      await ctx.answerCbQuery();
+
+      if (data === 'CANCEL_WIZARD') {
+        await ctx.reply('❌ ثبت پیشنهاد لغو شد.');
         return ctx.scene.leave();
       }
 
-      ctx.wizard.state.currency = text;
+      let currency = '';
+      if (data === 'SELECT_CURR_DKK') currency = 'DKK';
+      else if (data === 'SELECT_CURR_EUR') currency = 'EUR';
+      else if (data === 'SELECT_CURR_USD') currency = 'USD';
+      else {
+        await ctx.reply('لطفاً یکی از ارزهای بالا را انتخاب کنید.');
+        return;
+      }
+
+      ctx.wizard.state.currency = currency;
       await ctx.reply(
-        `مقدار ارز (${text}) مورد نظر خود را به صورت عدد انگلیسی وارد کنید:`,
+        `لطفاً مقدار ارز (${currency}) مورد نظر خود را به صورت عدد انگلیسی وارد کنید:`,
         Markup.keyboard([['انصراف']]).oneTime().resize()
       );
       return ctx.wizard.next();
     }
-    await ctx.reply('لطفاً نام ارز را به صورت متنی وارد کنید.');
+
+    // If they typed something instead of clicking
+    await ctx.reply('لطفاً یکی از گزینه‌های شیشه‌ای بالا را جهت تعیین ارز انتخاب کنید.');
   },
 
   // Step 4: Handle Amount & Ask for Price
