@@ -1,0 +1,46 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id          Int        @id @default(autoincrement())
+  telegramId  String     @unique // Stored as string to prevent overflow/serialization issues
+  username    String?
+  firstName   String
+  lastName    String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  proposals   Proposal[] @relation("UserProposals")
+  deals       Deal[]     @relation("UserDeals")
+}
+
+model Proposal {
+  id             Int      @id @default(autoincrement())
+  creatorId      Int
+  creator        User     @relation("UserProposals", fields: [creatorId], references: [id], onDelete: Cascade)
+  type           String   // "BUY" or "SELL"
+  currency       String   // e.g. "USD", "EUR", "USDT"
+  amount         Float
+  price          Float    // Price per unit or total price
+  priceCurrency  String   // e.g. "Toman", "USD"
+  status         String   // "PENDING" (active), "COMPLETED", "CANCELLED"
+  groupMessageId Int?     // Message ID in the Telegram group to update status
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deals          Deal[]
+}
+
+model Deal {
+  id          Int      @id @default(autoincrement())
+  proposalId  Int
+  proposal    Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  acceptorId  Int
+  acceptor    User     @relation("UserDeals", fields: [acceptorId], references: [id], onDelete: Cascade)
+  status      String   // "PENDING", "COMPLETED", "REJECTED"
+  createdAt   DateTime @default(now())
+}

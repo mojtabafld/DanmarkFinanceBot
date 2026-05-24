@@ -1,0 +1,25 @@
+{
+  "name": "danmark-finance-bot",
+  "version": "1.0.0",
+  "description": "A Telegram Bot for buying and selling currencies in groups, containerized and ready for DigitalOcean.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc && prisma generate",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.14.0",
+    "dotenv": "^16.4.5",
+    "prisma": "^5.14.0",
+    "telegraf": "^4.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5"
+  }
+}
