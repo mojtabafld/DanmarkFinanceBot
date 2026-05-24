@@ -212,18 +212,20 @@ export async function handleDealCallbacks(ctx: Context) {
       // 5. Update the Group message to reflect status
       if (proposal.groupMessageId) {
         const updatedGroupText =
-          `🤝 **معامله انجام شد (بسته شد)**\n\n` +
-          `🔹 **ارز:** ${proposal.currency}\n` +
-          `🔹 **مقدار:** ${proposal.amount.toLocaleString('fa-IR')}\n` +
-          `🔹 **قیمت واحد:** ${proposal.price.toLocaleString('fa-IR')} تومان\n` +
-          `🔹 **مبلغ کل:** ${(proposal.amount * proposal.price).toLocaleString('fa-IR')} تومان\n\n` +
+          `🤝 <b>معامله انجام شد (بسته شد)</b>\n\n` +
+          `<blockquote><b>#بسته_شده</b></blockquote>\n` +
+          `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
+          `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
+          `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
+          `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n\n` +
           `✅ این پیشنهاد پذیرفته شد و جهت انجام مراحل بعدی به ادمین ارجاع گردید.`;
 
         await ctx.telegram.editMessageText(
           config.GROUP_CHAT_ID,
           proposal.groupMessageId,
           undefined,
-          updatedGroupText
+          updatedGroupText,
+          { parse_mode: 'HTML' }
         ).catch(err => console.error('Failed to update group message:', err));
       }
 

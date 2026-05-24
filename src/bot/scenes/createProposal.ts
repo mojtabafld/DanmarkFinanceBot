@@ -230,20 +230,19 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
           });
 
           // 3. Format message for the group
-          const typeEmoji = proposal.type === 'BUY' ? '📥 #خرید' : '📤 #فروش';
-          const typeText = proposal.type === 'BUY' ? 'خریدار ارز' : 'فروشنده ارز';
+          const typeHeader = proposal.type === 'BUY' ? '📥 #خرید_ارز' : '📤 #فروش_ارز';
           const userMention = from.username 
             ? `@${from.username}` 
-            : `[${from.first_name}](tg://user?id=${from.id})`;
+            : `<a href="tg://user?id=${from.id}">${from.first_name}</a>`;
 
           const groupMsgText =
-            `📢 **پیشنهاد جدید معاملاتی**\n\n` +
-            `${typeEmoji}\n` +
-            `🔹 **ارز:** ${proposal.currency}\n` +
-            `🔹 **مقدار:** ${proposal.amount.toLocaleString('fa-IR')}\n` +
-            `🔹 **قیمت واحد:** ${proposal.price.toLocaleString('fa-IR')} تومان\n` +
-            `🔹 **مبلغ کل:** ${(proposal.amount * proposal.price).toLocaleString('fa-IR')} تومان\n` +
-            `👤 **توسط:** ${userMention}\n\n` +
+            `📢 <b>پیشنهاد جدید معاملاتی</b>\n\n` +
+            `<blockquote><b>${typeHeader}</b></blockquote>\n` +
+            `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
+            `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
+            `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
+            `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n` +
+            `👤 <b>توسط:</b> ${userMention}\n\n` +
             `ℹ️ برای ارسال پاسخ، قبول پیشنهاد یا گفتگو با ثبت‌کننده، روی دکمه زیر کلیک کنید:`;
 
           // Deep link to bot: https://t.me/BotUsername?start=deal_PROPOSAL_ID
@@ -254,7 +253,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
             config.GROUP_CHAT_ID,
             groupMsgText,
             {
-              parse_mode: 'Markdown',
+              parse_mode: 'HTML',
               ...Markup.inlineKeyboard([
                 [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)]
               ])

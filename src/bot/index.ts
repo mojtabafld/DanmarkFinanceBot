@@ -179,20 +179,20 @@ bot.on('callback_query', async (ctx) => {
 
       // Update the message in the group to show it is cancelled
       if (prop.groupMessageId) {
-        const typeText = prop.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
         const updatedGroupText =
-          `❌ **پیشنهاد لغو شد**\n\n` +
-          `🔹 **ارز:** ${prop.currency}\n` +
-          `🔹 **نوع:** ${typeText}\n` +
-          `🔹 **مقدار:** ${prop.amount.toLocaleString('fa-IR')}\n` +
-          `🔹 **قیمت واحد:** ${prop.price.toLocaleString('fa-IR')} تومان\n\n` +
-          `⚠️ این پیشنهاد توسط ثبت‌کننده آن لغو شد.`;
+          `❌ <b>پیشنهاد لغو شد</b>\n\n` +
+          `<blockquote><b>#لغو_شده</b></blockquote>\n` +
+          `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
+          `🔹 <b>مقدار:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
+          `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n` +
+          `⚠️ این پیشنهاد توسط ثبت‌کننده آن لغو گردید.`;
 
         await ctx.telegram.editMessageText(
           config.GROUP_CHAT_ID,
           prop.groupMessageId,
           undefined,
-          updatedGroupText
+          updatedGroupText,
+          { parse_mode: 'HTML' }
         ).catch(err => console.error('Failed to update group message on cancel:', err));
       }
 
