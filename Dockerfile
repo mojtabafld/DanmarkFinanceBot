@@ -36,4 +36,4 @@ COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/clie
 EXPOSE 3000
 
 # Run migrations and start the application
-CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
+CMD ["sh", "-c", "npx prisma db push && npm start"]
