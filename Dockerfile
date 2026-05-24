@@ -2,6 +2,7 @@
 FROM node:20-alpine AS builder
 
 WORKDIR /app
+RUN apk add --no-cache openssl libc6-compat
 
 # Copy dependency files
 COPY package.json tsconfig.json ./
@@ -18,6 +19,7 @@ RUN npm run build
 FROM node:20-alpine
 
 WORKDIR /app
+RUN apk add --no-cache openssl libc6-compat
 
 # Copy package files and install only production dependencies
 COPY package.json ./
