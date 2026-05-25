@@ -1369,109 +1369,84 @@ bot.on('callback_query', async (ctx) => {
           data: { status: 'ACCEPTED' }
         });
         
-        // Mark proposal status based on remaining amount
-        const remainingAmount = offer.proposal.amount - offer.amount;
-        let completedProposal;
+        // Lock proposal (do not deduct amount yet)
+        const lockedProposal = await tx.proposal.update({
+          where: { id: offer.proposalId },
+          data: { status: 'LOCKED' },
+          include: { creator: true }
+        });
         
-        if (remainingAmount <= 0.0001) {
-          completedProposal = await tx.proposal.update({
-            where: { id: offer.proposalId },
-            data: { amount: 0, status: 'COMPLETED' },
-            include: { creator: true }
-          });
-          
-          // Reject other pending offers for this proposal since it's fully closed
-          await tx.counterOffer.updateMany({
-            where: {
-              proposalId: offer.proposalId,
-              id: { not: offer.id },
-              status: 'PENDING'
-            },
-            data: { status: 'REJECTED' }
-          });
-        } else {
-          completedProposal = await tx.proposal.update({
-            where: { id: offer.proposalId },
-            data: { amount: remainingAmount }, // stays PENDING
-            include: { creator: true }
-          });
-          
-          // Reject other pending offers whose amount is greater than the new remaining amount
-          await tx.counterOffer.updateMany({
-            where: {
-              proposalId: offer.proposalId,
-              amount: { gt: remainingAmount },
-              status: 'PENDING'
-            },
-            data: { status: 'REJECTED' }
-          });
-        }
-        
-        // Create a deal record
+        // Create a deal record with status PENDING_ADMIN
         const deal = await tx.deal.create({
           data: {
             proposalId: offer.proposalId,
             acceptorId: offer.proposerId,
-            status: 'COMPLETED',
+            status: 'PENDING_ADMIN',
             amount: offer.amount
           }
         });
         
-        return { acceptedOffer, completedProposal };
+        return { acceptedOffer, lockedProposal, deal };
       });
       
-      const { completedProposal } = result;
+      const { lockedProposal, deal } = result;
       const totalValue = offer.amount * offer.price;
       
       // Notify proposer
       const proposerMsg = 
-        `✅ **خبر خوب! پیشنهاد قیمت شما پذیرفته شد.**\n\n` +
-        `🔹 **جزئیات معامله:** مقدار <code>${offer.amount.toLocaleString('fa-IR')}</code> ${completedProposal.currency} با قیمت واحد ${offer.price.toLocaleString('fa-IR')} تومان (کل: ${totalValue.toLocaleString('fa-IR')} تومان)\n\n` +
-        `👉 جهت هماهنگی، انجام معامله و مسائل مالی، لطفاً به ادمین ربات پیام دهید:\n` +
-        `📣 آیدی ادمین: @${config.ADMIN_USERNAME}`;
+        `✅ **پیشنهاد قیمت شما توسط سازنده آگهی پذیرفته شد.**\n\n` +
+        `🔹 **جزئیات معامله:** مقدار <code>${offer.amount.toLocaleString('fa-IR')}</code> ${lockedProposal.currency} با قیمت توافقی ${offer.price.toLocaleString('fa-IR')} تومان (کل: ${totalValue.toLocaleString('fa-IR')} تومان)\n\n` +
+        `🔒 این معامله در انتظار تایید نهایی مدیریت (Escrow) است. پس از تایید مدیریت، به شما اطلاع‌رسانی خواهد شد.`;
          
       await ctx.telegram.sendMessage(offer.proposer.telegramId, proposerMsg, { parse_mode: 'HTML' })
         .catch(err => console.error('Failed to notify proposer:', err));
          
       // Notify creator (sender of callback)
       await ctx.reply(
-        `✅ معامله برای مقدار ${offer.amount.toLocaleString('fa-IR')} با قیمت پیشنهادی جدید ${offer.price.toLocaleString('fa-IR')} تومان ثبت شد. جهت انجام مراحل بعدی به ادمین مراجعه کنید: @${config.ADMIN_USERNAME}`
+        `✅ معامله برای مقدار ${offer.amount.toLocaleString('fa-IR')} با قیمت پیشنهادی جدید ${offer.price.toLocaleString('fa-IR')} تومان ثبت شد. جهت انجام مراحل بعدی منتظر تایید ادمین بمانید.`
       );
       
       // Notify admin
-      const creatorContact = completedProposal.creator.username 
-        ? `@${completedProposal.creator.username}` 
-        : `[${completedProposal.creator.firstName}](tg://user?id=${completedProposal.creator.telegramId})`;
+      const creatorContact = lockedProposal.creator.username 
+        ? `@${lockedProposal.creator.username}` 
+        : `[${lockedProposal.creator.firstName}](tg://user?id=${lockedProposal.creator.telegramId})`;
       const proposerContact = offer.proposer.username 
         ? `@${offer.proposer.username}` 
         : `[${offer.proposer.firstName}](tg://user?id=${offer.proposer.telegramId})`;
          
       const adminMsg = 
-        `🔔 **معامله جدید با قیمت پیشنهادی ثبت شد!**\n\n` +
+        `🔔 **معامله جدید با قیمت پیشنهادی (نیاز به تایید ادمین)**\n\n` +
         `📈 **جزئیات معامله:**\n` +
-        `🔹 **نوع:** ${completedProposal.type === 'BUY' ? 'خرید' : 'فروش'}\n` +
-        `🔹 **ارز:** ${completedProposal.currency}\n` +
+        `🔹 **نوع:** ${lockedProposal.type === 'BUY' ? 'خرید' : 'فروش'}\n` +
+        `🔹 **ارز:** ${lockedProposal.currency}\n` +
         `🔹 **مقدار معامله:** ${offer.amount.toLocaleString('fa-IR')}\n` +
-        `🔹 **قیمت پایه اولیه:** ${completedProposal.price.toLocaleString('fa-IR')} تومان\n` +
-        `🔹 **قیمت نهایی مورد توافق:** ${offer.price.toLocaleString('fa-IR')} تومان\n` +
-        `🔹 **مبلغ کل نهایی:** ${totalValue.toLocaleString('fa-IR')} تومان\n\n` +
+        `🔹 **قیمت پایه اولیه:** ${lockedProposal.price.toLocaleString('fa-IR')} تومان\n` +
+        `🔹 **قیمت توافق شده:** ${offer.price.toLocaleString('fa-IR')} تومان\n` +
+        `🔹 **مبلغ کل:** ${totalValue.toLocaleString('fa-IR')} تومان\n\n` +
         `👤 **سازنده پیشنهاد (Creator):**\n` +
-        `   - نام: ${completedProposal.creator.firstName} ${completedProposal.creator.lastName || ''}\n` +
+        `   - نام: ${lockedProposal.creator.firstName} ${lockedProposal.creator.lastName || ''}\n` +
         `   - یوزرنیم: ${creatorContact}\n` +
-        `   - آیدی تلگرام: \`${completedProposal.creator.telegramId}\`\n\n` +
-        `👤 **پیشنهاددهنده قیمت (Counter Proposer):**\n` +
+        `   - آیدی تلگرام: \`${lockedProposal.creator.telegramId}\`\n\n` +
+        `👤 **پیشنهاددهنده قیمت (Proposer):**\n` +
         `   - نام: ${offer.proposer.firstName} ${offer.proposer.lastName || ''}\n` +
         `   - یوزرنیم: ${proposerContact}\n` +
         `   - آیدی تلگرام: \`${offer.proposer.telegramId}\``;
          
-      await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'Markdown' })
-        .catch(err => console.error('Failed to notify admin:', err));
+      await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('✅ تایید نهایی معامله', `ADMIN_DEAL_APPROVE_${deal.id}`),
+            Markup.button.callback('❌ رد معامله', `ADMIN_DEAL_REJECT_${deal.id}`)
+          ]
+        ])
+      }).catch(err => console.error('Failed to notify admin:', err));
          
       // Update group message
       await updateGroupProposalMessage(ctx.telegram, offer.proposalId);
       
       // Update the message in creator's chat to remove buttons
-      await ctx.editMessageText(`✅ پیشنهاد قیمت ${offer.price.toLocaleString('fa-IR')} تومانی را برای مقدار ${offer.amount.toLocaleString('fa-IR')} پذیرفتید. معامله ثبت شد.`).catch(() => {});
+      await ctx.editMessageText(`✅ پیشنهاد قیمت ${offer.price.toLocaleString('fa-IR')} تومانی را برای مقدار ${offer.amount.toLocaleString('fa-IR')} پذیرفتید. معامله در انتظار تایید مدیریت است.`).catch(() => {});
        
     } catch (err) {
       console.error('Error accepting counter offer:', err);
@@ -1553,6 +1528,233 @@ bot.on('callback_query', async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.reply('❌ عملیات معامله لغو شد.');
     await ctx.deleteMessage().catch(() => {});
+    return;
+  }
+
+  // Handle Admin Deal Approval
+  if (data.startsWith('ADMIN_DEAL_APPROVE_')) {
+    const dealId = parseInt(data.replace('ADMIN_DEAL_APPROVE_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(dealId)) return;
+
+    try {
+      const deal = await prisma.deal.findUnique({
+        where: { id: dealId },
+        include: {
+          proposal: {
+            include: { creator: true }
+          },
+          acceptor: true
+        }
+      });
+
+      if (!deal) {
+        await ctx.reply('❌ معامله یافت نشد.');
+        return;
+      }
+
+      if (deal.status !== 'PENDING_ADMIN') {
+        await ctx.reply(`⚠️ این معامله قبلاً تعیین تکلیف شده است (وضعیت فعلی: ${deal.status}).`);
+        return;
+      }
+
+      // Check if there was an accepted counter offer to find the agreed price
+      const acceptedOffer = await prisma.counterOffer.findFirst({
+        where: {
+          proposalId: deal.proposalId,
+          proposerId: deal.acceptorId,
+          status: 'ACCEPTED'
+        }
+      });
+      const agreedPrice = acceptedOffer ? acceptedOffer.price : deal.proposal.price;
+      const totalValue = deal.amount * agreedPrice;
+
+      // Run Transaction to complete the deal
+      const result = await prisma.$transaction(async (tx) => {
+        // Mark deal as COMPLETED
+        const completedDeal = await tx.deal.update({
+          where: { id: dealId },
+          data: { status: 'COMPLETED' }
+        });
+
+        // Get proposal details
+        const freshProposal = await tx.proposal.findUnique({
+          where: { id: deal.proposalId }
+        });
+
+        if (!freshProposal) {
+          throw new Error('PROPOSAL_NOT_FOUND');
+        }
+
+        const remainingAmount = freshProposal.amount - deal.amount;
+        let updatedProposal;
+
+        if (remainingAmount <= 0.0001) {
+          updatedProposal = await tx.proposal.update({
+            where: { id: deal.proposalId },
+            data: { amount: 0, status: 'COMPLETED' },
+            include: { creator: true }
+          });
+
+          // Reject other pending counter offers since proposal is completed
+          await tx.counterOffer.updateMany({
+            where: { proposalId: deal.proposalId, status: 'PENDING' },
+            data: { status: 'REJECTED' }
+          });
+        } else {
+          updatedProposal = await tx.proposal.update({
+            where: { id: deal.proposalId },
+            data: { amount: remainingAmount, status: 'PENDING' },
+            include: { creator: true }
+          });
+
+          // Reject pending offers whose amount is larger than remainingAmount
+          await tx.counterOffer.updateMany({
+            where: { proposalId: deal.proposalId, amount: { gt: remainingAmount }, status: 'PENDING' },
+            data: { status: 'REJECTED' }
+          });
+        }
+
+        return { completedDeal, updatedProposal };
+      });
+
+      // Notifications
+      const creatorContact = deal.acceptor.username 
+        ? `@${deal.acceptor.username}` 
+        : `<a href="tg://user?id=${deal.acceptor.telegramId}">${deal.acceptor.firstName}</a>`;
+      const acceptorContact = deal.proposal.creator.username 
+        ? `@${deal.proposal.creator.username}` 
+        : `<a href="tg://user?id=${deal.proposal.creator.telegramId}">${deal.proposal.creator.firstName}</a>`;
+
+      // Notify Creator
+      const creatorMsg = 
+        `🎉 **معامله شما توسط مدیریت تایید نهایی شد!**\n\n` +
+        `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت توافقی ${agreedPrice.toLocaleString('fa-IR')} تومان با موفقیت معامله شد.\n` +
+        `🔹 **مبلغ کل معامله:** <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
+        `👤 **طرف معامله:** ${creatorContact}\n\n` +
+        `👉 جهت انجام امور مالی و نهایی کردن انتقال، با ادمین در ارتباط باشید: @${config.ADMIN_USERNAME}`;
+
+      await ctx.telegram.sendMessage(deal.proposal.creator.telegramId, creatorMsg, { parse_mode: 'HTML' })
+        .catch(err => console.error('Failed to notify creator of admin approval:', err));
+
+      // Notify Acceptor/Proposer
+      const acceptorMsg = 
+        `🎉 **معامله شما توسط مدیریت تایید نهایی شد!**\n\n` +
+        `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت توافقی ${agreedPrice.toLocaleString('fa-IR')} تومان با موفقیت معامله شد.\n` +
+        `🔹 **مبلغ کل معامله:** <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
+        `👤 **طرف معامله:** ${acceptorContact}\n\n` +
+        `👉 جهت انجام امور مالی و نهایی کردن انتقال، با ادمین در ارتباط باشید: @${config.ADMIN_USERNAME}`;
+
+      await ctx.telegram.sendMessage(deal.acceptor.telegramId, acceptorMsg, { parse_mode: 'HTML' })
+        .catch(err => console.error('Failed to notify acceptor of admin approval:', err));
+
+      // Update admin message
+      await ctx.editMessageText(`✅ معامله #${dealId} با موفقیت تایید نهایی شد.`).catch(() => {});
+
+      // Update group message
+      await updateGroupProposalMessage(ctx.telegram, deal.proposalId);
+
+    } catch (err) {
+      console.error('Error in ADMIN_DEAL_APPROVE callback:', err);
+      await ctx.reply('❌ خطایی در تایید معامله رخ داد.');
+    }
+    return;
+  }
+
+  // Handle Admin Deal Rejection
+  if (data.startsWith('ADMIN_DEAL_REJECT_')) {
+    const dealId = parseInt(data.replace('ADMIN_DEAL_REJECT_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(dealId)) return;
+
+    try {
+      const deal = await prisma.deal.findUnique({
+        where: { id: dealId },
+        include: {
+          proposal: {
+            include: { creator: true }
+          },
+          acceptor: true
+        }
+      });
+
+      if (!deal) {
+        await ctx.reply('❌ معامله یافت نشد.');
+        return;
+      }
+
+      if (deal.status !== 'PENDING_ADMIN') {
+        await ctx.reply(`⚠️ این معامله قبلاً تعیین تکلیف شده است (وضعیت فعلی: ${deal.status}).`);
+        return;
+      }
+
+      // Check if there was an accepted counter offer to find agreed price
+      const acceptedOffer = await prisma.counterOffer.findFirst({
+        where: {
+          proposalId: deal.proposalId,
+          proposerId: deal.acceptorId,
+          status: 'ACCEPTED'
+        }
+      });
+      const agreedPrice = acceptedOffer ? acceptedOffer.price : deal.proposal.price;
+
+      // Run Transaction to reject the deal
+      await prisma.$transaction(async (tx) => {
+        // Mark deal as REJECTED
+        await tx.deal.update({
+          where: { id: dealId },
+          data: { status: 'REJECTED' }
+        });
+
+        // Revert proposal status to PENDING
+        await tx.proposal.update({
+          where: { id: deal.proposalId },
+          data: { status: 'PENDING' }
+        });
+
+        // If it was based on counter offer, mark that counter offer as REJECTED
+        const offerToReject = await tx.counterOffer.findFirst({
+          where: {
+            proposalId: deal.proposalId,
+            proposerId: deal.acceptorId,
+            status: 'ACCEPTED'
+          }
+        });
+
+        if (offerToReject) {
+          await tx.counterOffer.update({
+            where: { id: offerToReject.id },
+            data: { status: 'REJECTED' }
+          });
+        }
+      });
+
+      // Notify Creator
+      const creatorMsg = 
+        `❌ **معامله مربوط به آگهی #${deal.proposalId} توسط مدیریت تایید نهایی نشد و رد گردید.**\n\n` +
+        `🔄 آگهی شما مجدداً در گروه فعال و دکمه قبول پیشنهاد بازگردانده شد.`;
+
+      await ctx.telegram.sendMessage(deal.proposal.creator.telegramId, creatorMsg)
+        .catch(err => console.error('Failed to notify creator of rejection:', err));
+
+      // Notify Acceptor/Proposer
+      const acceptorMsg = 
+        `❌ **معامله شما توسط مدیریت تایید نهایی نشد و لغو گردید.**\n\n` +
+        `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت ${agreedPrice.toLocaleString('fa-IR')} تومان`;
+
+      await ctx.telegram.sendMessage(deal.acceptor.telegramId, acceptorMsg, { parse_mode: 'HTML' })
+        .catch(err => console.error('Failed to notify acceptor of rejection:', err));
+
+      // Update admin message
+      await ctx.editMessageText(`❌ معامله #${dealId} رد شد.`).catch(() => {});
+
+      // Update group message
+      await updateGroupProposalMessage(ctx.telegram, deal.proposalId);
+
+    } catch (err) {
+      console.error('Error in ADMIN_DEAL_REJECT callback:', err);
+      await ctx.reply('❌ خطایی در رد معامله رخ داد.');
+    }
     return;
   }
 });

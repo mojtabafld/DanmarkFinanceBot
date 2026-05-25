@@ -219,70 +219,47 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
             }
           });
           
-          // Create Completed Deal
+          // Create Pending Admin Deal (Locked temporarily)
           const deal = await tx.deal.create({
             data: {
               proposalId: freshProposal.id,
               acceptorId: acceptor.id,
-              status: 'COMPLETED',
+              status: 'PENDING_ADMIN',
               amount: amount
             }
           });
           
-          const remainingAmount = freshProposal.amount - amount;
-          let updatedProposal;
-          if (remainingAmount <= 0.0001) {
-            updatedProposal = await tx.proposal.update({
-              where: { id: freshProposal.id },
-              data: { amount: 0, status: 'COMPLETED' },
-              include: { creator: true }
-            });
-            
-            // Reject other pending counter offers since proposal is completed
-            await tx.counterOffer.updateMany({
-              where: { proposalId: freshProposal.id, status: 'PENDING' },
-              data: { status: 'REJECTED' }
-            });
-          } else {
-            updatedProposal = await tx.proposal.update({
-              where: { id: freshProposal.id },
-              data: { amount: remainingAmount }, // Stays PENDING
-              include: { creator: true }
-            });
-            
-            // Reject pending offers whose amount is larger than remainingAmount
-            await tx.counterOffer.updateMany({
-              where: { proposalId: freshProposal.id, amount: { gt: remainingAmount }, status: 'PENDING' },
-              data: { status: 'REJECTED' }
-            });
-          }
+          // Lock proposal (do not deduct amount yet)
+          const updatedProposal = await tx.proposal.update({
+            where: { id: freshProposal.id },
+            data: { status: 'LOCKED' },
+            include: { creator: true }
+          });
           
           return { deal, proposal: updatedProposal, acceptor };
         });
         
-        const { proposal: updatedProposal, acceptor } = result;
+        const { proposal: updatedProposal, acceptor, deal } = result;
         const totalValue = amount * proposal.price;
         
         // Notify Creator
         const creatorMsg = 
-          `🔔 **معامله مستقیم ثبت شد! پیشنهاد شما پذیرفته شد.**\n\n` +
-          `🔹 **جزئیات معامله:** مقدار <code>${amount.toLocaleString('fa-IR')}</code> ${proposal.currency} با قیمت واحد ${proposal.price.toLocaleString('fa-IR')} تومان (کل: ${totalValue.toLocaleString('fa-IR')} تومان)\n\n` +
-          `👉 جهت هماهنگی، انجام معامله و مسائل مالی، لطفاً به ادمین ربات پیام دهید:\n` +
-          `📣 آیدی ادمین: @${config.ADMIN_USERNAME}`;
+          `🔔 **درخواست معامله مستقیم ثبت شد!**\n\n` +
+          `🔹 **جزئیات:** مقدار <code>${amount.toLocaleString('fa-IR')}</code> ${proposal.currency} با قیمت واحد ${proposal.price.toLocaleString('fa-IR')} تومان (کل: ${totalValue.toLocaleString('fa-IR')} تومان)\n\n` +
+          `🔒 این معامله در انتظار تایید نهایی مدیریت (Escrow) است. پس از تایید مدیریت، اطلاعات هماهنگی برای شما ارسال خواهد شد.`;
           
         await ctx.telegram.sendMessage(proposal.creator.telegramId, creatorMsg, { parse_mode: 'HTML' })
           .catch(err => console.error('Failed to notify creator:', err));
           
         // Notify Acceptor
         const acceptorMsg = 
-          `✅ **معامله با موفقیت ثبت شد.**\n\n` +
-          `🔹 **جزئیات معامله:** مقدار <code>${amount.toLocaleString('fa-IR')}</code> ${proposal.currency} با قیمت واحد ${proposal.price.toLocaleString('fa-IR')} تومان (کل: ${totalValue.toLocaleString('fa-IR')} تومان)\n\n` +
-          `👉 جهت هماهنگی، انجام معامله و مسائل مالی، لطفاً به ادمین ربات پیام دهید:\n` +
-          `📣 آیدی ادمین: @${config.ADMIN_USERNAME}`;
+          `✅ **درخواست معامله با موفقیت ثبت شد.**\n\n` +
+          `🔹 **جزئیات:** مقدار <code>${amount.toLocaleString('fa-IR')}</code> ${proposal.currency} با قیمت واحد ${proposal.price.toLocaleString('fa-IR')} تومان (کل: ${totalValue.toLocaleString('fa-IR')} تومان)\n\n` +
+          `🔒 معامله در انتظار تایید نهایی مدیریت است. پس از بررسی و تایید توسط مدیریت، به شما اطلاع‌رسانی خواهد شد.`;
           
         await ctx.reply(acceptorMsg, { parse_mode: 'HTML', ...mainKeyboard });
         
-        // Notify Admin
+        // Notify Admin with Accept/Reject Buttons
         const creatorContact = proposal.creator.username 
           ? `@${proposal.creator.username}` 
           : `[${proposal.creator.firstName}](tg://user?id=${proposal.creator.telegramId})`;
@@ -291,7 +268,7 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
           : `[${acceptor.firstName}](tg://user?id=${acceptor.telegramId})`;
           
         const adminMsg = 
-          `🔔 **معامله مستقیم جدید ثبت شد!**\n\n` +
+          `🔔 **درخواست معامله مستقیم جدید (نیاز به تایید ادمین)**\n\n` +
           `📈 **جزئیات معامله:**\n` +
           `🔹 **نوع:** ${proposal.type === 'BUY' ? 'خرید' : 'فروش'}\n` +
           `🔹 **ارز:** ${proposal.currency}\n` +
@@ -307,8 +284,15 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
           `   - یوزرنیم: ${acceptorContact}\n` +
           `   - آیدی تلگرام: \`${acceptor.telegramId}\``;
           
-        await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'Markdown' })
-          .catch(err => console.error('Failed to notify admin:', err));
+        await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback('✅ تایید نهایی معامله', `ADMIN_DEAL_APPROVE_${deal.id}`),
+              Markup.button.callback('❌ رد معامله', `ADMIN_DEAL_REJECT_${deal.id}`)
+            ]
+          ])
+        }).catch(err => console.error('Failed to notify admin:', err));
           
         // Update group message
         await updateGroupProposalMessage(ctx.telegram, proposal.id);

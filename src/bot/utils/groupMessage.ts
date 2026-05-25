@@ -19,12 +19,15 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
 
     const isCompleted = prop.status === 'COMPLETED';
     const isCancelled = prop.status === 'CANCELLED' || prop.status === 'CANCELLED_BY_ADMIN';
+    const isLocked = prop.status === 'LOCKED';
 
     let header = '📢 <b>پیشنهاد جدید معاملاتی</b>';
     if (isCompleted) {
       header = '🤝 <b>#معامله_بسته_شد</b>';
     } else if (isCancelled) {
       header = '❌ <b>#پیشنهاد_لغو_شد</b>';
+    } else if (isLocked) {
+      header = '🔒 <b>#معامله_در_انتظار_تایید_مدیریت</b>';
     }
 
     const typeHeader = prop.type === 'BUY' ? '🟢 #خرید_ارز' : '🔴 #فروش_ارز';
@@ -62,7 +65,7 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
       }
     }
 
-    if (!isCompleted && !isCancelled) {
+    if (!isCompleted && !isCancelled && !isLocked) {
       msgText += `\nℹ️ برای ارسال پاسخ، قبول پیشنهاد یا گفتگو با ثبت‌کننده، روی دکمه زیر کلیک کنید:`;
       
       const deepLinkUrl = `https://t.me/${config.BOT_USERNAME}?start=deal_${prop.id}`;
@@ -80,9 +83,11 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
       ).catch(err => console.error('Failed to edit group message:', err));
     } else {
       if (isCompleted) {
-        msgText += `\n✅ این پیشنهاد پذیرفته شد و جهت انجام مراحل بعدی به ادمین ارجاع گردید.`;
+        msgText += `\n✅ این پیشنهاد پذیرفته شد و با تایید مدیریت معامله با موفقیت نهایی و بسته شد.`;
       } else if (isCancelled) {
         msgText += `\n⚠️ این پیشنهاد توسط مدیریت ربات لغو گردید.`;
+      } else if (isLocked) {
+        msgText += `\n🔒 این پیشنهاد توسط یکی از کاربران پذیرفته شده و در انتظار تایید نهایی مدیریت است.`;
       }
       
       await telegram.editMessageText(
@@ -91,7 +96,7 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
         undefined,
         msgText,
         { parse_mode: 'HTML' }
-      ).catch(err => console.error('Failed to edit completed/cancelled group message:', err));
+      ).catch(err => console.error('Failed to edit completed/cancelled/locked group message:', err));
     }
   } catch (error) {
     console.error('Error updating group proposal message:', error);
