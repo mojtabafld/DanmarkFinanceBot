@@ -219,7 +219,7 @@ bot.hears('🔐 شروع احراز هویت', async (ctx) => {
 });
 
 // Text command handlers (Protected with checkVerified middleware)
-bot.hears('ثبت | ویرایش درخواست', checkVerified, async (ctx) => {
+bot.hears('ثبت / ویرایش آگهی', checkVerified, async (ctx) => {
   const from = ctx.from;
   if (!from) return;
 
@@ -232,33 +232,41 @@ bot.hears('ثبت | ویرایش درخواست', checkVerified, async (ctx) => 
     const activeProposals = await prisma.proposal.findMany({
       where: {
         creatorId: dbUser.id,
-        status: 'PENDING'
+        status: { in: ['PENDING', 'PENDING_APPROVAL'] }
       },
       orderBy: { createdAt: 'desc' }
     });
 
-    if (activeProposals.length === 0) {
-      await ctx.scene.enter(CREATE_PROPOSAL_SCENE_ID);
-      return;
+    if (activeProposals.length > 0) {
+      await ctx.reply(
+        `📋 <b>مدیریت آگهی‌های شما</b>\n\n` +
+        `شما دارای <code>${activeProposals.length}</code> آگهی فعال در سیستم هستید.\n` +
+        `جهت ویرایش هر آگهی روی دکمه مربوطه کلیک کنید یا آگهی جدیدی ثبت کنید:`,
+        {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            ...activeProposals.map(prop => [
+              Markup.button.callback(
+                `✏️ ویرایش آگهی #${prop.code ?? prop.id} (${prop.type === 'BUY' ? 'خرید' : 'فروش'} ${prop.amount.toLocaleString('fa-IR')} ${prop.currency})`,
+                `USER_EDIT_PROP_${prop.id}`
+              )
+            ]),
+            [Markup.button.callback('➕ ثبت آگهی جدید', 'USER_CREATE_NEW_PROP')]
+          ])
+        }
+      );
+    } else {
+      await ctx.reply(
+        `📋 <b>مدیریت آگهی‌ها</b>\n\n` +
+        `شما در حال حاضر هیچ آگهی فعالی در سیستم ندارید. جهت ثبت آگهی جدید روی دکمه زیر کلیک کنید:`,
+        {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('➕ ثبت آگهی جدید', 'USER_CREATE_NEW_PROP')]
+          ])
+        }
+      );
     }
-
-    await ctx.reply(
-      `📋 <b>مدیریت درخواست‌های شما</b>\n\n` +
-      `شما دارای <code>${activeProposals.length}</code> درخواست فعال هستید.\n` +
-      `لطفاً جهت ویرایش هر یک، آن را انتخاب کنید یا درخواست جدیدی ثبت کنید:`,
-      {
-        parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([
-          ...activeProposals.map(prop => [
-            Markup.button.callback(
-              `✏️ ویرایش حواله #${prop.code ?? prop.id} (${prop.type === 'BUY' ? 'خرید' : 'فروش'} ${prop.amount.toLocaleString('fa-IR')} ${prop.currency})`,
-              `USER_EDIT_PROP_${prop.id}`
-            )
-          ]),
-          [Markup.button.callback('➕ ثبت درخواست جدید', 'USER_CREATE_NEW_PROP')]
-        ])
-      }
-    );
 
   } catch (err) {
     console.error('Error in request management:', err);
