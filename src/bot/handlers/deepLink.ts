@@ -76,8 +76,8 @@ export async function handleDeepLink(ctx: Context, payload: string) {
     await ctx.replyWithMarkdown(
       detailText,
       Markup.inlineKeyboard([
-        [Markup.button.callback('🤝 قبول با قیمت اصلی', `ACCEPT_DEAL_${proposal.id}`)],
-        [Markup.button.callback('✍️ ثبت قیمت پیشنهادی جدید', `COUNTER_OFFER_PROP_${proposal.id}`)],
+        [Markup.button.callback('🤝 قبول تعداد کل با قیمت اصلی', `ACCEPT_DEAL_${proposal.id}`)],
+        [Markup.button.callback('✍️ ثبت تعداد و قیمت پیشنهادی جدید', `COUNTER_OFFER_PROP_${proposal.id}`)],
         [Markup.button.callback('❌ انصراف', 'CANCEL_DEAL')]
       ])
     );

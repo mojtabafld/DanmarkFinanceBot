@@ -122,6 +122,7 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
       if (data === 'QTY_FULL') {
         ctx.wizard.state.amount = proposal.amount;
         // Jump directly to Step 3 (index 2 in wizard steps)
+        ctx.wizard.selectStep(2);
         return (ctx.wizard as any).steps[2](ctx);
       }
       
@@ -155,6 +156,7 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
       
       ctx.wizard.state.amount = amount;
       // Jump directly to Step 3
+      ctx.wizard.selectStep(2);
       return (ctx.wizard as any).steps[2](ctx);
     }
     
