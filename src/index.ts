@@ -21,8 +21,10 @@ async function main() {
     });
 
     console.log('⏳ Starting Telegram Bot...');
-    // Launch the bot (uses Long Polling)
-    await bot.launch();
+    // Launch the bot with chat_member updates enabled
+    await bot.launch({
+      allowedUpdates: ['message', 'callback_query', 'chat_member']
+    });
     console.log('🚀 Telegram Bot is running and listening for updates!');
 
     // Enable graceful stop

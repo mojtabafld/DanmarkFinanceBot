@@ -32,7 +32,34 @@ const checkVerified = async (ctx: BotContext, next: () => Promise<void>) => {
     });
 
     if (user?.verificationStatus === 'APPROVED') {
-      return next();
+      // User is verified in DB. Now dynamically check if they are in the group!
+      try {
+        const member = await ctx.telegram.getChatMember(config.GROUP_CHAT_ID, from.id);
+        const isActiveMember = ['member', 'administrator', 'creator'].includes(member.status);
+        
+        if (isActiveMember) {
+          return next();
+        }
+
+        // User is verified in DB but NOT in the group. Regenerate invite link and tell them to join!
+        const inviteLink = await ctx.telegram.createChatInviteLink(config.GROUP_CHAT_ID, {
+          member_limit: 1,
+          name: `Re-invite for ${user.fullName || from.first_name}`,
+          expire_date: Math.floor(Date.now() / 1000) + 86400 // 24 hours
+        });
+
+        await ctx.reply(
+          '⚠️ کاربر گرامی، احراز هویت شما تایید شده است، اما برای ثبت پیشنهاد یا فعالیت در ربات باید عضو گروه معاملاتی باشید.\n\n' +
+          'لطفاً ابتدا از طریق لینک زیر وارد گروه شوید و سپس اقدام کنید:\n' +
+          `🔗 ${inviteLink.invite_link}`,
+          Markup.removeKeyboard()
+        );
+        return;
+      } catch (err) {
+        console.error('Error checking group membership in middleware:', err);
+        // Fallback to allow if API call fails due to missing bot rights
+        return next();
+      }
     }
 
     if (user?.verificationStatus === 'PENDING') {
@@ -361,5 +388,43 @@ bot.on('callback_query', async (ctx) => {
   if (data.startsWith('ACCEPT_DEAL_') || data === 'CANCEL_DEAL') {
     await handleDealCallbacks(ctx);
     return;
+  }
+});
+
+// Handle when a member status changes in the group (User joins group)
+bot.on('chat_member', async (ctx) => {
+  const chatMember = ctx.chatMember;
+  const chat = ctx.chat;
+
+  // Only care about updates from our designated group
+  if (chat.id !== config.GROUP_CHAT_ID) return;
+
+  const newMember = chatMember.new_chat_member;
+  const status = newMember.status;
+  const user = newMember.user;
+
+  // Determine if they just joined (transitioning from not being a member to being one)
+  const isJoined = ['member', 'administrator', 'creator'].includes(status);
+  const wasNotJoined = ['left', 'kicked', 'restricted'].includes(chatMember.old_chat_member.status);
+
+  if (isJoined && wasNotJoined && !user.is_bot) {
+    try {
+      // Find the user in our database
+      const dbUser = await prisma.user.findUnique({
+        where: { telegramId: user.id.toString() }
+      });
+
+      // Send the main keyboard and welcome message ONLY if they are already APPROVED in DB
+      if (dbUser && dbUser.verificationStatus === 'APPROVED') {
+        await ctx.telegram.sendMessage(
+          user.id,
+          `🎉 **عضویت شما در گروه معاملاتی دانمارک با موفقیت تایید شد!**\n\n` +
+          `اکنون می‌توانید از منوی دکمه‌های زیر برای ثبت پیشنهاد جدید خرید یا فروش و مدیریت پیشنهادهای خود استفاده کنید:`,
+          mainKeyboard
+        );
+      }
+    } catch (error) {
+      console.error('Error handling chat_member join event:', error);
+    }
   }
 });
