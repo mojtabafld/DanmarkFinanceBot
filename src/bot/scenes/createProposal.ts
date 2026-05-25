@@ -24,6 +24,45 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
   // Step 1: Select Buy or Sell
   async (ctx) => {
     ctx.wizard.state = {};
+    const from = ctx.from;
+    if (!from) {
+      await ctx.reply('خطایی رخ داد. اطلاعات کاربری شما یافت نشد.');
+      return ctx.scene.leave();
+    }
+
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { telegramId: from.id.toString() }
+      });
+
+      if (dbUser) {
+        const activeCount = await prisma.proposal.count({
+          where: {
+            creatorId: dbUser.id,
+            createdAt: {
+              gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
+            },
+            status: {
+              not: 'CANCELLED'
+            }
+          }
+        });
+
+        const limit = dbUser.dailyProposalLimit;
+        if (activeCount >= limit) {
+          await ctx.reply(
+            `⚠️ **محدودیت تعداد پیشنهاد روزانه**\n\n` +
+            `کاربر گرامی، شما در ۲۴ ساعت گذشته تعداد <code>${activeCount}</code> پیشنهاد ثبت کرده‌اید و به حد مجاز روزانه خود (<code>${limit}</code> پیشنهاد) رسیده‌اید.\n\n` +
+            `امکان ثبت پیشنهاد جدید تا پایان بازه ۲۴ ساعته مقدور نیست.`,
+            { parse_mode: 'HTML' }
+          );
+          return ctx.scene.leave();
+        }
+      }
+    } catch (err) {
+      console.error('Error checking daily proposal limit:', err);
+    }
+
     await ctx.reply(
       'لطفاً نوع پیشنهاد خود را انتخاب کنید:',
       Markup.inlineKeyboard([

@@ -19,6 +19,7 @@ model User {
   phoneNumber        String?
   documentFileId     String?
   rejectReason       String?
+  dailyProposalLimit Int        @default(5)
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
   proposals          Proposal[] @relation("UserProposals")

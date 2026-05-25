@@ -3,6 +3,8 @@ import { config } from '../config';
 import { prisma } from '../database/db';
 import { createProposalWizard, CREATE_PROPOSAL_SCENE_ID, MyWizardContext } from './scenes/createProposal';
 import { verifyUserWizard, VERIFY_USER_SCENE_ID } from './scenes/verifyUser';
+import { adminSearchWizard, ADMIN_SEARCH_SCENE_ID } from './scenes/adminSearch';
+import { adminEditUserWizard, adminRejectUserWizard, ADMIN_EDIT_USER_SCENE_ID, ADMIN_REJECT_USER_SCENE_ID } from './scenes/adminEditUser';
 import { handleDeepLink, handleDealCallbacks } from './handlers/deepLink';
 
 // Set up the custom context type for the bot
@@ -11,7 +13,13 @@ export interface BotContext extends MyWizardContext {}
 export const bot = new Telegraf<BotContext>(config.BOT_TOKEN);
 
 // Register Session and Scenes Middleware
-const stage = new Scenes.Stage<BotContext>([createProposalWizard, verifyUserWizard]);
+const stage = new Scenes.Stage<BotContext>([
+  createProposalWizard,
+  verifyUserWizard,
+  adminSearchWizard,
+  adminEditUserWizard,
+  adminRejectUserWizard
+]);
 bot.use(session());
 bot.use(stage.middleware());
 
@@ -96,7 +104,6 @@ bot.start(async (ctx) => {
   // Check if it's a deep link (e.g. from the group button)
   const payload = ctx.startPayload;
   if (payload) {
-    // We allow deep link handler to check verification internally
     await handleDeepLink(ctx, payload);
     return;
   }
@@ -160,6 +167,35 @@ bot.start(async (ctx) => {
   }
 });
 
+// Admin Command (Restricted to config.ADMIN_CHAT_ID)
+bot.command('admin', async (ctx) => {
+  const from = ctx.from;
+  if (!from || from.id.toString() !== config.ADMIN_CHAT_ID.toString()) {
+    await ctx.reply('⚠️ شما مجاز به استفاده از این دستور نیستید.');
+    return;
+  }
+
+  await ctx.reply(
+    '⚙️ <b>منوی مدیریت ربات DanmarkFinance:</b>\n\n' +
+    'یکی از گزینه‌های زیر را انتخاب کنید:',
+    {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback('👥 تایید شده‌ها', 'ADMIN_LIST_APPROVED'),
+          Markup.button.callback('⏳ در انتظار تایید', 'ADMIN_LIST_PENDING')
+        ],
+        [
+          Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
+          Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
+        ],
+        [Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')],
+        [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
+      ])
+    }
+  );
+});
+
 // Help command
 bot.help(checkVerified, async (ctx) => {
   await ctx.reply(
@@ -179,7 +215,6 @@ bot.hears('🔐 شروع احراز هویت', async (ctx) => {
 
 // Text command handlers (Protected with checkVerified middleware)
 bot.hears('📝 ثبت پیشنهاد جدید', checkVerified, async (ctx) => {
-  // Enter the creation wizard scene
   await ctx.scene.enter(CREATE_PROPOSAL_SCENE_ID);
 });
 
@@ -239,7 +274,7 @@ bot.hears('❓ راهنما', checkVerified, async (ctx) => {
   );
 });
 
-// Handle standard callback queries (like canceling user proposals or deal confirmations)
+// Handle standard callback queries
 bot.on('callback_query', async (ctx) => {
   if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
   const data = ctx.callbackQuery.data;
@@ -247,82 +282,505 @@ bot.on('callback_query', async (ctx) => {
   const from = ctx.from;
   if (!from) return;
 
-  // Handle Admin User Approvals
-  if (data.startsWith('APPROVE_USER_')) {
-    const userId = parseInt(data.replace('APPROVE_USER_', ''), 10);
-    await ctx.answerCbQuery();
-    if (isNaN(userId)) return;
+  const isAdmin = from.id.toString() === config.ADMIN_CHAT_ID.toString();
 
-    try {
-      const user = await prisma.user.update({
-        where: { id: userId },
-        data: { verificationStatus: 'APPROVED' }
-      });
-
-      // Generate a single-use invite link to the group (valid for 24 hours)
-      const inviteLink = await ctx.telegram.createChatInviteLink(config.GROUP_CHAT_ID, {
-        member_limit: 1,
-        name: `Invite for ${user.fullName}`,
-        expire_date: Math.floor(Date.now() / 1000) + 86400 // 24 hours
-      });
-
-      // Notify the User
-      const userMsg =
-        `🎉 **احراز هویت شما با موفقیت توسط مدیریت تایید شد!**\n\n` +
-        `لینک عضویت یک‌بار مصرف شما در گروه معاملاتی دانمارک (دارای اعتبار ۲۴ ساعته):\n` +
-        `🔗 ${inviteLink.invite_link}\n\n` +
-        `پس از عضویت در گروه، با اجرای مجدد ربات می‌توانید پیشنهادهای خود را ثبت کنید.`;
-      
-      await ctx.telegram.sendMessage(user.telegramId, userMsg, { parse_mode: 'Markdown' });
-
-      // Update Admin Message
-      await ctx.editMessageCaption(
-        `✅ **احراز هویت کاربر تایید شد**\n\n` +
-        `👤 **نام کامل:** ${user.fullName}\n` +
-        `🌍 **کشور:** ${user.country}\n` +
-        `📱 **تلفن:** ${user.phoneNumber}\n\n` +
-        `🔗 لینک عضویت صادر و ارسال شد.`
-      ).catch(() => {});
-
-    } catch (error) {
-      console.error('Error approving user:', error);
-      await ctx.reply('❌ خطا در تایید درخواست احراز هویت.');
+  // ADMIN CALLBACKS
+  if (isAdmin) {
+    // 1. Admin Close Menu
+    if (data === 'ADMIN_CLOSE') {
+      await ctx.answerCbQuery();
+      await ctx.deleteMessage().catch(() => {});
+      return;
     }
-    return;
-  }
 
-  // Handle Admin User Rejections
-  if (data.startsWith('REJECT_USER_')) {
-    const userId = parseInt(data.replace('REJECT_USER_', ''), 10);
-    await ctx.answerCbQuery();
-    if (isNaN(userId)) return;
-
-    try {
-      const user = await prisma.user.update({
-        where: { id: userId },
-        data: { verificationStatus: 'REJECTED' }
-      });
-
-      // Notify the User
-      const userMsg =
-        `❌ **درخواست احراز هویت شما مورد تایید قرار نگرفت.**\n\n` +
-        `شما می‌توانید با زدن دکمه «🔐 شروع احراز هویت» مجدداً تلاش کرده و مدارک هویتی معتبر ارسال کنید.`;
-      
-      await ctx.telegram.sendMessage(user.telegramId, userMsg);
-
-      // Update Admin Message
-      await ctx.editMessageCaption(
-        `❌ **احراز هویت کاربر رد صلاحیت شد**\n\n` +
-        `👤 **نام کامل:** ${user.fullName}\n` +
-        `🌍 **کشور:** ${user.country}\n` +
-        `📱 **تلفن:** ${user.phoneNumber}`
-      ).catch(() => {});
-
-    } catch (error) {
-      console.error('Error rejecting user:', error);
-      await ctx.reply('❌ خطا در رد درخواست احراز هویت.');
+    // 2. Admin Main Menu
+    if (data === 'ADMIN_MAIN_MENU') {
+      await ctx.answerCbQuery();
+      // If the current message has a photo, editMessageText fails.
+      // So, let's delete the photo message and reply with a fresh text menu!
+      // This is a common bug in Telegram bots when switching from a detailed user view (which has a photo) back to the main text-only menu.
+      const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+      if (hasPhoto) {
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.reply(
+          '⚙️ <b>منوی مدیریت ربات DanmarkFinance:</b>\n\n' +
+          'یکی از گزینه‌های زیر را انتخاب کنید:',
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [
+                Markup.button.callback('👥 تایید شده‌ها', 'ADMIN_LIST_APPROVED'),
+                Markup.button.callback('⏳ در انتظار تایید', 'ADMIN_LIST_PENDING')
+              ],
+              [
+                Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
+                Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
+              ],
+              [Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')],
+              [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
+            ])
+          }
+        );
+      } else {
+        await ctx.editMessageText(
+          '⚙️ <b>منوی مدیریت ربات DanmarkFinance:</b>\n\n' +
+          'یکی از گزینه‌های زیر را انتخاب کنید:',
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [
+                Markup.button.callback('👥 تایید شده‌ها', 'ADMIN_LIST_APPROVED'),
+                Markup.button.callback('⏳ در انتظار تایید', 'ADMIN_LIST_PENDING')
+              ],
+              [
+                Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
+                Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
+              ],
+              [Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')],
+              [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
+            ])
+          }
+        ).catch(() => {});
+      }
+      return;
     }
-    return;
+
+    // 3. Admin System Stats
+    if (data === 'ADMIN_STATS') {
+      await ctx.answerCbQuery();
+      try {
+        const approvedCount = await prisma.user.count({ where: { verificationStatus: 'APPROVED' } });
+        const pendingCount = await prisma.user.count({ where: { verificationStatus: 'PENDING' } });
+        const rejectedCount = await prisma.user.count({ where: { verificationStatus: 'REJECTED' } });
+        
+        const pendingProps = await prisma.proposal.count({ where: { status: 'PENDING' } });
+        const completedProps = await prisma.proposal.count({ where: { status: 'COMPLETED' } });
+
+        const statsText =
+          `📊 <b>آمار کل سیستم ربات DanmarkFinance:</b>\n\n` +
+          `👥 <b>وضعیت کاربران:</b>\n` +
+          `  - تایید شده: <code>${approvedCount}</code> نفر\n` +
+          `  - در انتظار تایید: <code>${pendingCount}</code> نفر\n` +
+          `  - رد صلاحیت شده: <code>${rejectedCount}</code> نفر\n\n` +
+          `📈 <b>پیشنهادات ثبت شده:</b>\n` +
+          `  - پیشنهادهای فعال: <code>${pendingProps}</code> مورد\n` +
+          `  - معاملات موفق: <code>${completedProps}</code> مورد`;
+
+        await ctx.editMessageText(statsText, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]
+          ])
+        }).catch(() => {});
+      } catch (error) {
+        console.error('Error fetching admin stats:', error);
+        await ctx.reply('خطا در بارگذاری آمار.');
+      }
+      return;
+    }
+
+    // 4. Admin List Approved Users (Paginated)
+    if (data === 'ADMIN_LIST_APPROVED' || data.startsWith('ADMIN_LIST_APP_')) {
+      await ctx.answerCbQuery();
+      const page = data.startsWith('ADMIN_LIST_APP_') ? parseInt(data.replace('ADMIN_LIST_APP_', ''), 10) : 0;
+      const pageSize = 10;
+      try {
+        const total = await prisma.user.count({ where: { verificationStatus: 'APPROVED' } });
+        const users = await prisma.user.findMany({
+          where: { verificationStatus: 'APPROVED' },
+          skip: page * pageSize,
+          take: pageSize,
+          orderBy: { updatedAt: 'desc' }
+        });
+
+        if (users.length === 0 && page === 0) {
+          await ctx.editMessageText(
+            '👥 هیچ کاربر تاییدشده‌ای یافت نشد.',
+            Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]])
+          ).catch(() => {});
+          return;
+        }
+
+        const buttons = users.map(u => [
+          Markup.button.callback(
+            `${u.fullName || u.firstName} (@${u.username || 'ندارد'})`,
+            `ADMIN_USER_VIEW_${u.id}`
+          )
+        ]);
+
+        const navRow = [];
+        if (page > 0) {
+          navRow.push(Markup.button.callback('⬅️ صفحه قبل', `ADMIN_LIST_APP_${page - 1}`));
+        }
+        if ((page + 1) * pageSize < total) {
+          navRow.push(Markup.button.callback('صفحه بعد ➡️', `ADMIN_LIST_APP_${page + 1}`));
+        }
+        if (navRow.length > 0) {
+          buttons.push(navRow);
+        }
+
+        buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
+
+        const totalPages = Math.ceil(total / pageSize) || 1;
+        await ctx.editMessageText(
+          `👥 <b>لیست کاربران تایید شده:</b>\n` +
+          `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> نفر)\n\n` +
+          `برای مشاهده مشخصات و مدیریت هر کاربر کلیک کنید:`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons)
+          }
+        ).catch(() => {});
+      } catch (error) {
+        console.error('Error listing approved users:', error);
+      }
+      return;
+    }
+
+    // 5. Admin List Pending Users (Paginated)
+    if (data === 'ADMIN_LIST_PENDING' || data.startsWith('ADMIN_LIST_PEN_')) {
+      await ctx.answerCbQuery();
+      const page = data.startsWith('ADMIN_LIST_PEN_') ? parseInt(data.replace('ADMIN_LIST_PEN_', ''), 10) : 0;
+      const pageSize = 10;
+      try {
+        const total = await prisma.user.count({ where: { verificationStatus: 'PENDING' } });
+        const users = await prisma.user.findMany({
+          where: { verificationStatus: 'PENDING' },
+          skip: page * pageSize,
+          take: pageSize,
+          orderBy: { createdAt: 'desc' }
+        });
+
+        if (users.length === 0 && page === 0) {
+          await ctx.editMessageText(
+            '⏳ هیچ درخواستی در انتظار تایید نیست.',
+            Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]])
+          ).catch(() => {});
+          return;
+        }
+
+        const buttons = users.map(u => [
+          Markup.button.callback(
+            `⏳ ${u.fullName || u.firstName} (@${u.username || 'ندارد'})`,
+            `ADMIN_USER_VIEW_${u.id}`
+          )
+        ]);
+
+        const navRow = [];
+        if (page > 0) {
+          navRow.push(Markup.button.callback('⬅️ صفحه قبل', `ADMIN_LIST_PEN_${page - 1}`));
+        }
+        if ((page + 1) * pageSize < total) {
+          navRow.push(Markup.button.callback('صفحه بعد ➡️', `ADMIN_LIST_PEN_${page + 1}`));
+        }
+        if (navRow.length > 0) {
+          buttons.push(navRow);
+        }
+
+        buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
+
+        const totalPages = Math.ceil(total / pageSize) || 1;
+        await ctx.editMessageText(
+          `⏳ <b>لیست درخواست‌های در انتظار بررسی:</b>\n` +
+          `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> نفر)\n\n` +
+          `جهت بررسی هر کاربر کلیک کنید:`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons)
+          }
+        ).catch(() => {});
+      } catch (error) {
+        console.error('Error listing pending users:', error);
+      }
+      return;
+    }
+
+    // 5.5. Admin List Rejected Users (Paginated)
+    if (data === 'ADMIN_LIST_REJECTED' || data.startsWith('ADMIN_LIST_REJ_')) {
+      await ctx.answerCbQuery();
+      const page = data.startsWith('ADMIN_LIST_REJ_') ? parseInt(data.replace('ADMIN_LIST_REJ_', ''), 10) : 0;
+      const pageSize = 10;
+      try {
+        const total = await prisma.user.count({ where: { verificationStatus: 'REJECTED' } });
+        const users = await prisma.user.findMany({
+          where: { verificationStatus: 'REJECTED' },
+          skip: page * pageSize,
+          take: pageSize,
+          orderBy: { updatedAt: 'desc' }
+        });
+
+        if (users.length === 0 && page === 0) {
+          await ctx.editMessageText(
+            '❌ هیچ کاربر رد صلاحیت شده‌ای یافت نشد.',
+            Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]])
+          ).catch(() => {});
+          return;
+        }
+
+        const buttons = users.map(u => [
+          Markup.button.callback(
+            `❌ ${u.fullName || u.firstName} (@${u.username || 'ندارد'})`,
+            `ADMIN_USER_VIEW_${u.id}`
+          )
+        ]);
+
+        const navRow = [];
+        if (page > 0) {
+          navRow.push(Markup.button.callback('⬅️ صفحه قبل', `ADMIN_LIST_REJ_${page - 1}`));
+        }
+        if ((page + 1) * pageSize < total) {
+          navRow.push(Markup.button.callback('صفحه بعد ➡️', `ADMIN_LIST_REJ_${page + 1}`));
+        }
+        if (navRow.length > 0) {
+          buttons.push(navRow);
+        }
+
+        buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
+
+        const totalPages = Math.ceil(total / pageSize) || 1;
+        await ctx.editMessageText(
+          `❌ <b>لیست کاربران رد صلاحیت شده:</b>\n` +
+          `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> نفر)\n\n` +
+          `برای مشاهده مشخصات و مدیریت هر کاربر کلیک کنید:`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons)
+          }
+        ).catch(() => {});
+      } catch (error) {
+        console.error('Error listing rejected users:', error);
+      }
+      return;
+    }
+
+    // 6. Admin View User Details
+    if (data.startsWith('ADMIN_USER_VIEW_')) {
+      const userId = parseInt(data.replace('ADMIN_USER_VIEW_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(userId)) return;
+
+      try {
+        const u = await prisma.user.findUnique({ where: { id: userId } });
+        if (!u) {
+          await ctx.reply('کاربر مورد نظر یافت نشد.');
+          return;
+        }
+
+        const proposalsCount = await prisma.proposal.count({
+          where: { creatorId: u.id }
+        });
+        const activeProposalsCount = await prisma.proposal.count({
+          where: { creatorId: u.id, status: 'PENDING' }
+        });
+
+        const detailsText =
+          `👤 <b>مشخصات کاربر:</b>\n\n` +
+          `🔹 <b>نام واقعی:</b> <code>${u.fullName || 'ثبت نشده'}</code>\n` +
+          `🔹 <b>نام کاربری:</b> @${u.username || 'ندارد'}\n` +
+          `🔹 <b>شماره تماس:</b> <code>${u.phoneNumber || 'ثبت نشده'}</code>\n` +
+          `🔹 <b>کشور محل اقامت:</b> <code>${u.country || 'ثبت نشده'}</code>\n` +
+          `🔹 <b>وضعیت کنونی:</b> <code>${u.verificationStatus}</code>\n` +
+          `🔹 <b>حد مجاز روزانه:</b> <code>${u.dailyProposalLimit}</code> پیشنهاد\n` +
+          `🔹 <b>تعداد پیشنهادها:</b> <code>${proposalsCount}</code> (فعال: <code>${activeProposalsCount}</code>)\n` +
+          `🔹 <b>شناسه تلگرام:</b> <code>${u.telegramId}</code>` +
+          (u.rejectReason ? `\n💬 <b>علت رد/لغو:</b> <code>${u.rejectReason}</code>` : '');
+
+        const buttons = [];
+        
+        // Show Approve/Reject/Revoke buttons based on current verification status
+        if (u.verificationStatus === 'PENDING') {
+          buttons.push([
+            Markup.button.callback('✅ تایید درخواست', `APPROVE_USER_${u.id}`),
+            Markup.button.callback('❌ رد درخواست', `REJECT_USER_${u.id}`)
+          ]);
+        } else if (u.verificationStatus === 'APPROVED') {
+          buttons.push([
+            Markup.button.callback('🚫 لغو احراز هویت و اخراج', `ADMIN_USER_REVOKE_${u.id}`)
+          ]);
+        } else if (u.verificationStatus === 'REJECTED') {
+          buttons.push([
+            Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${u.id}`)
+          ]);
+        }
+
+        // Edit buttons row 1
+        buttons.push([
+          Markup.button.callback('✏️ نام واقعی', `ADMIN_EDIT_name_${u.id}`),
+          Markup.button.callback('✏️ شماره تماس', `ADMIN_EDIT_phone_${u.id}`)
+        ]);
+        
+        // Edit buttons row 2
+        buttons.push([
+          Markup.button.callback('✏️ کشور اقامت', `ADMIN_EDIT_country_${u.id}`),
+          Markup.button.callback('✏️ حد مجاز روزانه', `ADMIN_EDIT_limit_${u.id}`)
+        ]);
+
+        // Status & Delete row
+        buttons.push([
+          Markup.button.callback('✏️ تغییر وضعیت', `ADMIN_EDIT_status_${u.id}`),
+          Markup.button.callback('🗑 حذف کامل از ربات', `ADMIN_USER_DELETE_${u.id}`)
+        ]);
+        
+        // Back button based on status
+        let backTarget = 'ADMIN_MAIN_MENU';
+        if (u.verificationStatus === 'PENDING') backTarget = 'ADMIN_LIST_PENDING';
+        else if (u.verificationStatus === 'APPROVED') backTarget = 'ADMIN_LIST_APPROVED';
+        else if (u.verificationStatus === 'REJECTED') backTarget = 'ADMIN_LIST_REJECTED';
+        
+        buttons.push([Markup.button.callback('🔙 بازگشت به لیست', backTarget)]);
+
+        if (u.documentFileId) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.replyWithPhoto(u.documentFileId, {
+            caption: detailsText,
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons)
+          });
+        } else {
+          const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+          if (hasPhoto) {
+            await ctx.deleteMessage().catch(() => {});
+            await ctx.reply(detailsText, {
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard(buttons)
+            });
+          } else {
+            await ctx.editMessageText(detailsText, {
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard(buttons)
+            }).catch(() => {});
+          }
+        }
+      } catch (error) {
+        console.error('Error viewing user details:', error);
+      }
+      return;
+    }
+
+    // 7. Admin Revoke / Rejection (Redirect to reject wizard to get reason)
+    if (data.startsWith('ADMIN_USER_REVOKE_') || data.startsWith('REJECT_USER_')) {
+      await ctx.answerCbQuery();
+      let userIdStr = '';
+      if (data.startsWith('ADMIN_USER_REVOKE_')) {
+        userIdStr = data.replace('ADMIN_USER_REVOKE_', '');
+      } else {
+        userIdStr = data.replace('REJECT_USER_', '');
+      }
+      const userId = parseInt(userIdStr, 10);
+      if (isNaN(userId)) return;
+
+      await ctx.deleteMessage().catch(() => {});
+      await ctx.scene.enter(ADMIN_REJECT_USER_SCENE_ID, { userId });
+      return;
+    }
+
+    // 8. Admin Delete User completely
+    if (data.startsWith('ADMIN_USER_DELETE_')) {
+      const userId = parseInt(data.replace('ADMIN_USER_DELETE_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(userId)) return;
+
+      try {
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (user) {
+          // Kick first
+          const tgId = parseInt(user.telegramId, 10);
+          await ctx.telegram.banChatMember(config.GROUP_CHAT_ID, tgId).catch(() => {});
+          await ctx.telegram.unbanChatMember(config.GROUP_CHAT_ID, tgId).catch(() => {});
+
+          // Delete DB
+          await prisma.user.delete({ where: { id: userId } });
+          
+          // Notify user
+          await ctx.telegram.sendMessage(user.telegramId, '❌ اکانت کاربری شما در ربات توسط مدیریت به طور کامل حذف شد.').catch(() => {});
+
+          await ctx.reply(`🗑 کاربر **${user.fullName || user.firstName}** به همراه تمامی داده‌هایش حذف و از گروه اخراج شد.`);
+          await ctx.deleteMessage().catch(() => {});
+        }
+      } catch (error) {
+        console.error('Error deleting user:', error);
+        await ctx.reply('❌ خطا در حذف کامل کاربر.');
+      }
+      return;
+    }
+
+    // 9. Admin Search Trigger
+    if (data === 'ADMIN_SEARCH_USER') {
+      await ctx.answerCbQuery();
+      await ctx.scene.enter(ADMIN_SEARCH_SCENE_ID);
+      return;
+    }
+
+    // 10. Admin Edit Field Trigger
+    if (data.startsWith('ADMIN_EDIT_')) {
+      await ctx.answerCbQuery();
+      const parts = data.replace('ADMIN_EDIT_', '').split('_');
+      if (parts.length < 2) return;
+
+      const fieldShort = parts[0];
+      const userId = parseInt(parts[1], 10);
+      if (isNaN(userId)) return;
+
+      let field: 'fullName' | 'phoneNumber' | 'country' | 'dailyProposalLimit' | 'verificationStatus' = 'fullName';
+      if (fieldShort === 'name') field = 'fullName';
+      else if (fieldShort === 'phone') field = 'phoneNumber';
+      else if (fieldShort === 'country') field = 'country';
+      else if (fieldShort === 'limit') field = 'dailyProposalLimit';
+      else if (fieldShort === 'status') field = 'verificationStatus';
+
+      await ctx.scene.enter(ADMIN_EDIT_USER_SCENE_ID, { userId, field });
+      return;
+    }
+
+    // 11. Secure User Approvals (moved inside isAdmin block)
+    if (data.startsWith('APPROVE_USER_')) {
+      const userId = parseInt(data.replace('APPROVE_USER_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(userId)) return;
+
+      try {
+        const user = await prisma.user.update({
+          where: { id: userId },
+          data: { verificationStatus: 'APPROVED' }
+        });
+
+        // Generate invite link
+        const inviteLink = await ctx.telegram.createChatInviteLink(config.GROUP_CHAT_ID, {
+          member_limit: 1,
+          name: `Invite for ${user.fullName}`,
+          expire_date: Math.floor(Date.now() / 1000) + 86400 // 24 hours
+        });
+
+        // Notify user
+        const userMsg =
+          `🎉 **احراز هویت شما با موفقیت توسط مدیریت تایید شد!**\n\n` +
+          `لینک عضویت یک‌بار مصرف شما در گروه معاملاتی دانمارک (دارای اعتبار ۲۴ ساعته):\n` +
+          `🔗 ${inviteLink.invite_link}\n\n` +
+          `پس از عضویت در گروه، با اجرای مجدد ربات می‌توانید پیشنهادهای خود را ثبت کنید.`;
+        
+        await ctx.telegram.sendMessage(user.telegramId, userMsg, { parse_mode: 'Markdown' });
+
+        // Update Admin Message
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+        const confirmationText = 
+          `✅ **احراز هویت کاربر تایید شد**\n\n` +
+          `👤 **نام کامل:** ${user.fullName}\n` +
+          `🌍 **کشور:** ${user.country}\n` +
+          `📱 **تلفن:** ${user.phoneNumber}\n\n` +
+          `🔗 لینک عضویت صادر و ارسال شد.`;
+
+        if (hasPhoto) {
+          await ctx.editMessageCaption(confirmationText).catch(() => {});
+        } else {
+          await ctx.editMessageText(confirmationText).catch(() => {});
+        }
+
+      } catch (error) {
+        console.error('Error approving user:', error);
+        await ctx.reply('❌ خطا در تایید درخواست احراز هویت.');
+      }
+      return;
+    }
   }
 
   // Handle My Proposal Cancellation
