@@ -348,50 +348,22 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
               paymentMethod: ctx.wizard.state.paymentMethod!,
               price: ctx.wizard.state.price!,
               priceCurrency: 'تومان',
-              status: 'PENDING',
+              status: 'PENDING_APPROVAL',
               code: code
             },
+            include: { creator: true }
           });
 
-          // 3. Format message for the group
+          // 3. Format message for the Admin approval request
           const typeHeader = proposal.type === 'BUY' ? '🟢 #خرید_ارز' : '🔴 #فروش_ارز';
           const userMention = from.username 
             ? `@${from.username}` 
             : `<a href="tg://user?id=${from.id}">${from.first_name}</a>`;
 
-          const groupMsgText =
-            `📢 <b>پیشنهاد جدید معاملاتی</b>\n\n` +
-            `<b>${typeHeader}</b>\n\n` +
+          const adminApprovalMsgText =
+            `⏳ <b>درخواست ثبت آگهی جدید (نیاز به تایید ادمین)</b>\n\n` +
             `🔹 <b>کد حواله:</b> <code>${proposal.code}</code>\n` +
-            `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
-            `🔹 <b>نوع تسویه:</b> <code>${proposal.paymentMethod}</code>\n` +
-            `🔹 <b>مقدار کل:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
-            `🔹 <b>مقدار باقیمانده:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
-            `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
-            `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n` +
-            `👤 <b>توسط:</b> ${userMention}\n` +
-            `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(proposal.createdAt)}</code>\n\n` +
-            `ℹ️ برای ارسال پاسخ، قبول پیشنهاد یا گفتگو با ثبت‌کننده، روی دکمه زیر کلیک کنید:`;
-
-          const deepLinkUrl = `https://t.me/${config.BOT_USERNAME}?start=deal_${proposal.id}`;
-
-          // 4. Send to group
-          const sentMessage = await ctx.telegram.sendMessage(
-            config.GROUP_CHAT_ID,
-            groupMsgText,
-            {
-              parse_mode: 'HTML',
-              ...Markup.inlineKeyboard([
-                [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)]
-              ])
-            }
-          );
-
-          // Send copy with admin control keyboard privately to Admin
-          const adminMsgText =
-            `🔔 <b>پیشنهاد جدید معاملاتی ثبت شد:</b>\n\n` +
-            `<b>${typeHeader}</b>\n\n` +
-            `🔹 <b>کد حواله:</b> <code>${proposal.code}</code>\n` +
+            `🔹 <b>نوع:</b> ${typeHeader}\n` +
             `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
             `🔹 <b>نوع تسویه:</b> <code>${proposal.paymentMethod}</code>\n` +
             `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
@@ -399,37 +371,24 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
             `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n` +
             `👤 <b>توسط:</b> ${userMention}\n` +
             `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(proposal.createdAt)}</code>\n\n` +
-            `⚙️ <b>دکمه‌های مدیریت پیشنهاد:</b>`;
+            `❓ آیا مایل به تایید این آگهی و ارسال آن به گروه هستید؟`;
 
           await ctx.telegram.sendMessage(
             config.ADMIN_CHAT_ID,
-            adminMsgText,
+            adminApprovalMsgText,
             {
               parse_mode: 'HTML',
               ...Markup.inlineKeyboard([
                 [
-                  Markup.button.callback('❌ لغو پیشنهاد', `ADMIN_PROP_CANCEL_${proposal.id}`),
-                  Markup.button.callback('🗑 حذف پیشنهاد', `ADMIN_PROP_DELETE_${proposal.id}`)
-                ],
-                [
-                  Markup.button.callback('✏️ مقدار', `ADMIN_PROP_EDIT_amount_${proposal.id}`),
-                  Markup.button.callback('✏️ قیمت', `ADMIN_PROP_EDIT_price_${proposal.id}`)
-                ],
-                [
-                  Markup.button.callback('👤 پرونده کاربر ثبت‌کننده', `ADMIN_USER_VIEW_${dbUser.id}`)
+                  Markup.button.callback('✅ تایید آگهی', `ADMIN_PROP_APPROVE_${proposal.id}`),
+                  Markup.button.callback('❌ رد آگهی', `ADMIN_PROP_REJECT_${proposal.id}`)
                 ]
               ])
             }
-          ).catch(err => console.error('Failed to notify admin about new proposal:', err));
-
-          // 5. Update proposal with the group message ID
-          await prisma.proposal.update({
-            where: { id: proposal.id },
-            data: { groupMessageId: sentMessage.message_id },
-          });
+          ).catch(err => console.error('Failed to notify admin about approval request:', err));
 
           await ctx.reply(
-            '✅ پیشنهاد شما با موفقیت ثبت و به گروه ارسال شد.',
+            '✅ درخواست شما با موفقیت ثبت شد و پس از بررسی و تایید مدیریت در گروه منتشر خواهد شد.',
             mainKeyboard
           );
 

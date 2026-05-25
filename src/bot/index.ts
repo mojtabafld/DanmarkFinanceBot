@@ -11,6 +11,7 @@ import { acceptDealWizard, ACCEPT_DEAL_SCENE_ID } from './scenes/dealWizard';
 import { updateGroupProposalMessage, formatToShamsi } from './utils/groupMessage';
 import { mainKeyboard, verifyStartKeyboard } from './utils/keyboards';
 import { editProposalWizard, EDIT_PROPOSAL_SCENE_ID } from './scenes/editProposal';
+import { adminUpdateRatesWizard, ADMIN_UPDATE_RATES_SCENE_ID } from './scenes/adminUpdateRates';
 
 // Set up the custom context type for the bot
 export interface BotContext extends MyWizardContext {}
@@ -26,7 +27,8 @@ const stage = new Scenes.Stage<BotContext>([
   adminRejectUserWizard,
   adminEditPropWizard,
   acceptDealWizard,
-  editProposalWizard
+  editProposalWizard,
+  adminUpdateRatesWizard
 ]);
 bot.use(session());
 bot.use(stage.middleware());
@@ -186,15 +188,11 @@ bot.command('admin', async (ctx) => {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [
-          Markup.button.callback('👥 تایید شده‌ها', 'ADMIN_LIST_APPROVED'),
-          Markup.button.callback('⏳ در انتظار تایید', 'ADMIN_LIST_PENDING')
+          Markup.button.callback('👥 مدیریت کاربران', 'ADMIN_USER_MNG'),
+          Markup.button.callback('📋 مدیریت آگهی‌ها', 'ADMIN_PROP_MNG')
         ],
         [
-          Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
-          Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
-        ],
-        [
-          Markup.button.callback('📋 مدیریت پیشنهادات', 'ADMIN_LIST_PROPOSALS'),
+          Markup.button.callback('📈 آپدیت نرخ ارز', 'ADMIN_RATES_MNG'),
           Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')
         ],
         [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
@@ -397,53 +395,24 @@ bot.on('callback_query', async (ctx) => {
     if (data === 'ADMIN_MAIN_MENU') {
       await ctx.answerCbQuery();
       const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+      const menuText = '⚙️ <b>منوی مدیریت ربات DanmarkFinance:</b>\n\nیکی از گزینه‌های زیر را انتخاب کنید:';
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('👥 مدیریت کاربران', 'ADMIN_USER_MNG'),
+          Markup.button.callback('📋 مدیریت آگهی‌ها', 'ADMIN_PROP_MNG')
+        ],
+        [
+          Markup.button.callback('📈 آپدیت نرخ ارز', 'ADMIN_RATES_MNG'),
+          Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')
+        ],
+        [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
+      ]);
+
       if (hasPhoto) {
         await ctx.deleteMessage().catch(() => {});
-        await ctx.reply(
-          '⚙️ <b>منوی مدیریت ربات DanmarkFinance:</b>\n\n' +
-          'یکی از گزینه‌های زیر را انتخاب کنید:',
-          {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([
-              [
-                Markup.button.callback('👥 تایید شده‌ها', 'ADMIN_LIST_APPROVED'),
-                Markup.button.callback('⏳ در انتظار تایید', 'ADMIN_LIST_PENDING')
-              ],
-              [
-                Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
-                Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
-              ],
-              [
-                Markup.button.callback('📋 مدیریت پیشنهادات', 'ADMIN_LIST_PROPOSALS'),
-                Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')
-              ],
-              [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
-            ])
-          }
-        );
+        await ctx.reply(menuText, { parse_mode: 'HTML', ...keyboard });
       } else {
-        await ctx.editMessageText(
-          '⚙️ <b>منوی مدیریت ربات DanmarkFinance:</b>\n\n' +
-          'یکی از گزینه‌های زیر را انتخاب کنید:',
-          {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([
-              [
-                Markup.button.callback('👥 تایید شده‌ها', 'ADMIN_LIST_APPROVED'),
-                Markup.button.callback('⏳ در انتظار تایید', 'ADMIN_LIST_PENDING')
-              ],
-              [
-                Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
-                Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
-              ],
-              [
-                Markup.button.callback('📋 مدیریت پیشنهادات', 'ADMIN_LIST_PROPOSALS'),
-                Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')
-              ],
-              [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
-            ])
-          }
-        ).catch(() => {});
+        await ctx.editMessageText(menuText, { parse_mode: 'HTML', ...keyboard }).catch(() => {});
       }
       return;
     }
@@ -528,7 +497,7 @@ bot.on('callback_query', async (ctx) => {
           buttons.push(navRow);
         }
 
-        buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
+        buttons.push([Markup.button.callback('🔙 بازگشت به مدیریت کاربران', 'ADMIN_USER_MNG')]);
 
         const totalPages = Math.ceil(total / pageSize) || 1;
         const msgText = `👥 <b>لیست کاربران تایید شده:</b>\n` +
@@ -598,7 +567,7 @@ bot.on('callback_query', async (ctx) => {
           buttons.push(navRow);
         }
 
-        buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
+        buttons.push([Markup.button.callback('🔙 بازگشت به مدیریت کاربران', 'ADMIN_USER_MNG')]);
 
         const totalPages = Math.ceil(total / pageSize) || 1;
         const msgText = `⏳ <b>لیست درخواست‌های در انتظار بررسی:</b>\n` +
@@ -668,7 +637,7 @@ bot.on('callback_query', async (ctx) => {
           buttons.push(navRow);
         }
 
-        buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
+        buttons.push([Markup.button.callback('🔙 بازگشت به مدیریت کاربران', 'ADMIN_USER_MNG')]);
 
         const totalPages = Math.ceil(total / pageSize) || 1;
         const msgText = `❌ <b>لیست کاربران رد صلاحیت شده:</b>\n` +
@@ -1078,7 +1047,7 @@ bot.on('callback_query', async (ctx) => {
           buttons.push(navRow);
         }
 
-        buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
+        buttons.push([Markup.button.callback('🔙 بازگشت به مدیریت آگهی‌ها', 'ADMIN_PROP_MNG')]);
 
         const totalPages = Math.ceil(total / pageSize) || 1;
         const msgText = `📋 <b>مدیریت پیشنهادات فعال کل سیستم:</b>\n` +
@@ -1220,15 +1189,24 @@ bot.on('callback_query', async (ctx) => {
             Markup.button.callback('✏️ ویرایش مقدار', `ADMIN_PROP_EDIT_amount_${prop.id}`),
             Markup.button.callback('✏️ ویرایش قیمت', `ADMIN_PROP_EDIT_price_${prop.id}`)
           ]);
+        } else if (prop.status === 'PENDING_APPROVAL') {
+          buttons.push([
+            Markup.button.callback('✅ تایید آگهی', `ADMIN_PROP_APPROVE_${prop.id}`),
+            Markup.button.callback('❌ رد آگهی', `ADMIN_PROP_REJECT_${prop.id}`)
+          ]);
         }
         
         buttons.push([
           Markup.button.callback('🗑 حذف کامل از دیتابیس', `ADMIN_PROP_DELETE_${prop.id}`)
         ]);
         
+        let backTarget = 'ADMIN_PROP_MNG';
+        if (prop.status === 'PENDING') backTarget = 'ADMIN_LIST_PROPOSALS';
+        else if (prop.status === 'PENDING_APPROVAL') backTarget = 'ADMIN_LIST_PENDING_APPROVAL';
+
         buttons.push([
           Markup.button.callback('👤 پرونده کاربر ثبت‌کننده', `ADMIN_USER_VIEW_${prop.creator.id}`),
-          Markup.button.callback('🔙 لیست پیشنهادهای کاربر', `ADMIN_USER_PROPS_${prop.creator.id}_0`)
+          Markup.button.callback('🔙 بازگشت به لیست آگهی‌ها', backTarget)
         ]);
 
         const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
@@ -1349,6 +1327,314 @@ bot.on('callback_query', async (ctx) => {
       if (isNaN(proposalId)) return;
 
       await ctx.scene.enter(ADMIN_EDIT_PROP_SCENE_ID, { proposalId, field });
+      return;
+    }
+
+    // 19. Admin User Management Menu
+    if (data === 'ADMIN_USER_MNG') {
+      await ctx.answerCbQuery();
+      const userMngText = 
+        `👥 <b>مدیریت کاربران - DanmarkFinance:</b>\n\n` +
+        `لطفاً یکی از بخش‌های زیر را انتخاب کنید:`;
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('👥 تایید شده‌ها', 'ADMIN_LIST_APPROVED'),
+          Markup.button.callback('⏳ در انتظار بررسی', 'ADMIN_LIST_PENDING')
+        ],
+        [
+          Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
+          Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
+        ],
+        [Markup.button.callback('🔙 بازگشت به منوی اصلی', 'ADMIN_MAIN_MENU')]
+      ]);
+
+      const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+      if (hasPhoto) {
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.reply(userMngText, { parse_mode: 'HTML', ...keyboard });
+      } else {
+        await ctx.editMessageText(userMngText, { parse_mode: 'HTML', ...keyboard }).catch(() => {});
+      }
+      return;
+    }
+
+    // 20. Admin Proposal Management Menu
+    if (data === 'ADMIN_PROP_MNG') {
+      await ctx.answerCbQuery();
+      const propMngText =
+        `📋 <b>مدیریت آگهی‌ها - DanmarkFinance:</b>\n\n` +
+        `لطفاً یکی از بخش‌های زیر را انتخاب کنید:`;
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('📋 لیست آگهی‌های فعال', 'ADMIN_LIST_PROPOSALS'),
+          Markup.button.callback('⏳ در انتظار تایید ادمین', 'ADMIN_LIST_PENDING_APPROVAL')
+        ],
+        [Markup.button.callback('🔙 بازگشت به منوی اصلی', 'ADMIN_MAIN_MENU')]
+      ]);
+
+      const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+      if (hasPhoto) {
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.reply(propMngText, { parse_mode: 'HTML', ...keyboard });
+      } else {
+        await ctx.editMessageText(propMngText, { parse_mode: 'HTML', ...keyboard }).catch(() => {});
+      }
+      return;
+    }
+
+    // 21. Admin Rate Update Wizard Scene Enter
+    if (data === 'ADMIN_RATES_MNG') {
+      await ctx.answerCbQuery();
+      await ctx.deleteMessage().catch(() => {});
+      await ctx.scene.enter(ADMIN_UPDATE_RATES_SCENE_ID);
+      return;
+    }
+
+    // 22. Admin List Proposals in PENDING_APPROVAL status (Paginated)
+    if (data === 'ADMIN_LIST_PENDING_APPROVAL' || data.startsWith('ADMIN_LIST_PEN_APP_')) {
+      await ctx.answerCbQuery();
+      const page = data.startsWith('ADMIN_LIST_PEN_APP_') ? parseInt(data.replace('ADMIN_LIST_PEN_APP_', ''), 10) : 0;
+      const pageSize = 10;
+
+      try {
+        const total = await prisma.proposal.count({ where: { status: 'PENDING_APPROVAL' } });
+        const props = await prisma.proposal.findMany({
+          where: { status: 'PENDING_APPROVAL' },
+          skip: page * pageSize,
+          take: pageSize,
+          orderBy: { createdAt: 'desc' },
+          include: { creator: true }
+        });
+
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+
+        if (props.length === 0 && page === 0) {
+          const emptyText = '📋 هیچ آگهی در انتظار تایید مدیریتی یافت نشد.';
+          const emptyMarkup = Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_PROP_MNG')]]);
+          if (hasPhoto) {
+            await ctx.deleteMessage().catch(() => {});
+            await ctx.reply(emptyText, emptyMarkup);
+          } else {
+            await ctx.editMessageText(emptyText, emptyMarkup).catch(() => {});
+          }
+          return;
+        }
+
+        const buttons = props.map(p => [
+          Markup.button.callback(
+            `[${p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}] ${p.amount.toLocaleString('fa-IR')} ${p.currency} (توسط ${p.creator.fullName || p.creator.firstName})`,
+            `ADMIN_PROP_VIEW_${p.id}`
+          )
+        ]);
+
+        const navRow = [];
+        if (page > 0) {
+          navRow.push(Markup.button.callback('⬅️ صفحه قبل', `ADMIN_LIST_PEN_APP_${page - 1}`));
+        }
+        if ((page + 1) * pageSize < total) {
+          navRow.push(Markup.button.callback('صفحه بعد ➡️', `ADMIN_LIST_PEN_APP_${page + 1}`));
+        }
+        if (navRow.length > 0) {
+          buttons.push(navRow);
+        }
+
+        buttons.push([Markup.button.callback('🔙 بازگشت به مدیریت آگهی‌ها', 'ADMIN_PROP_MNG')]);
+
+        const totalPages = Math.ceil(total / pageSize) || 1;
+        const msgText = `📋 <b>آگهی‌های در انتظار بررسی و تایید:</b>\n` +
+          `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> آگهی)\n\n` +
+          `برای مشاهده جزئیات و تایید/رد هر آگهی کلیک کنید:`;
+
+        const markup = {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard(buttons)
+        };
+
+        if (hasPhoto) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.reply(msgText, markup as any);
+        } else {
+          await ctx.editMessageText(msgText, markup as any).catch(() => {});
+        }
+      } catch (error) {
+        console.error('Error listing pending approval proposals:', error);
+      }
+      return;
+    }
+
+    // 23. Admin Proposal Approval Handler
+    if (data.startsWith('ADMIN_PROP_APPROVE_')) {
+      const propId = parseInt(data.replace('ADMIN_PROP_APPROVE_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(propId)) return;
+
+      try {
+        const prop = await prisma.proposal.findUnique({
+          where: { id: propId },
+          include: { creator: true }
+        });
+
+        if (!prop) {
+          await ctx.reply('❌ پیشنهاد مورد نظر یافت نشد.');
+          return;
+        }
+
+        if (prop.status !== 'PENDING_APPROVAL') {
+          await ctx.reply(`⚠️ این آگهی قبلاً تعیین تکلیف شده است (وضعیت فعلی: ${prop.status}).`);
+          return;
+        }
+
+        // Format message for the group
+        const typeHeader = prop.type === 'BUY' ? '🟢 #خرید_ارز' : '🔴 #فروش_ارز';
+        const userMention = prop.creator.username 
+          ? `@${prop.creator.username}` 
+          : `<a href="tg://user?id=${prop.creator.telegramId}">${prop.creator.firstName}</a>`;
+
+        const groupMsgText =
+          `📢 <b>پیشنهاد جدید معاملاتی</b>\n\n` +
+          `<b>${typeHeader}</b>\n\n` +
+          `🔹 <b>کد حواله:</b> <code>${prop.code ?? '---'}</code>\n` +
+          `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
+          `🔹 <b>نوع تسویه:</b> <code>${prop.paymentMethod ?? '---'}</code>\n` +
+          `🔹 <b>مقدار کل:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
+          `🔹 <b>مقدار باقیمانده:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
+          `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
+          `🔹 <b>مبلغ کل:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
+          `👤 <b>توسط:</b> ${userMention}\n` +
+          `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(prop.createdAt)}</code>\n\n` +
+          `ℹ️ برای ارسال پاسخ، قبول پیشنهاد یا گفتگو با ثبت‌کننده، روی دکمه زیر کلیک کنید:`;
+
+        const deepLinkUrl = `https://t.me/${config.BOT_USERNAME}?start=deal_${prop.id}`;
+
+        // Send to group
+        const sentMessage = await ctx.telegram.sendMessage(
+          config.GROUP_CHAT_ID,
+          groupMsgText,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)]
+            ])
+          }
+        );
+
+        // Update status and groupMessageId in database
+        const updatedProp = await prisma.proposal.update({
+          where: { id: propId },
+          data: {
+            status: 'PENDING',
+            groupMessageId: sentMessage.message_id
+          },
+          include: { creator: true }
+        });
+
+        // Notify creator
+        await ctx.telegram.sendMessage(
+          updatedProp.creator.telegramId,
+          `🎉 **پیشنهاد معاملاتی شما (کد حواله ${updatedProp.code}) با موفقیت توسط مدیریت تایید و در گروه منتشر شد.**`
+        ).catch(err => console.error('Failed to notify creator of approval:', err));
+
+        // Update the current admin message (where the button was clicked)
+        const successMsgText = `✅ پیشنهاد شماره <code>${updatedProp.code}</code> با موفقیت تایید و در گروه منتشر شد.`;
+        
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+        if (hasPhoto) {
+          await ctx.editMessageCaption(successMsgText, { parse_mode: 'HTML' }).catch(() => {});
+        } else {
+          await ctx.editMessageText(successMsgText, { parse_mode: 'HTML' }).catch(() => {});
+        }
+
+        // Send copy with admin control keyboard privately to Admin
+        const adminMsgText =
+          `🔔 <b>پیشنهاد جدید معاملاتی ثبت شد:</b>\n\n` +
+          `<b>${typeHeader}</b>\n\n` +
+          `🔹 <b>کد حواله:</b> <code>${updatedProp.code}</code>\n` +
+          `🔹 <b>ارز:</b> <code>${updatedProp.currency}</code>\n` +
+          `🔹 <b>نوع تسویه:</b> <code>${updatedProp.paymentMethod}</code>\n` +
+          `🔹 <b>مقدار:</b> <code>${updatedProp.amount.toLocaleString('fa-IR')}</code>\n` +
+          `🔹 <b>قیمت واحد:</b> <code>${updatedProp.price.toLocaleString('fa-IR')}</code> تومان\n` +
+          `🔹 <b>مبلغ کل:</b> <code>${(updatedProp.amount * updatedProp.price).toLocaleString('fa-IR')}</code> تومان\n` +
+          `👤 <b>توسط:</b> ${userMention}\n` +
+          `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(updatedProp.createdAt)}</code>\n\n` +
+          `⚙️ <b>دکمه‌های مدیریت پیشنهاد:</b>`;
+
+        await ctx.telegram.sendMessage(
+          config.ADMIN_CHAT_ID,
+          adminMsgText,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [
+                Markup.button.callback('❌ لغو پیشنهاد', `ADMIN_PROP_CANCEL_${updatedProp.id}`),
+                Markup.button.callback('🗑 حذف پیشنهاد', `ADMIN_PROP_DELETE_${updatedProp.id}`)
+              ],
+              [
+                Markup.button.callback('✏️ مقدار', `ADMIN_PROP_EDIT_amount_${updatedProp.id}`),
+                Markup.button.callback('✏️ قیمت', `ADMIN_PROP_EDIT_price_${updatedProp.id}`)
+              ],
+              [
+                Markup.button.callback('👤 پرونده کاربر ثبت‌کننده', `ADMIN_USER_VIEW_${updatedProp.creatorId}`)
+              ]
+            ])
+          }
+        ).catch(err => console.error('Failed to send admin control panel:', err));
+
+      } catch (err) {
+        console.error('Error approving proposal:', err);
+        await ctx.reply('❌ خطا در تایید آگهی.');
+      }
+      return;
+    }
+
+    // 24. Admin Proposal Rejection Handler
+    if (data.startsWith('ADMIN_PROP_REJECT_')) {
+      const propId = parseInt(data.replace('ADMIN_PROP_REJECT_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(propId)) return;
+
+      try {
+        const prop = await prisma.proposal.findUnique({
+          where: { id: propId },
+          include: { creator: true }
+        });
+
+        if (!prop) {
+          await ctx.reply('❌ پیشنهاد مورد نظر یافت نشد.');
+          return;
+        }
+
+        if (prop.status !== 'PENDING_APPROVAL') {
+          await ctx.reply(`⚠️ این آگهی قبلاً تعیین تکلیف شده است (وضعیت فعلی: ${prop.status}).`);
+          return;
+        }
+
+        // Update status to CANCELLED in database
+        const updatedProp = await prisma.proposal.update({
+          where: { id: propId },
+          data: { status: 'CANCELLED' },
+          include: { creator: true }
+        });
+
+        // Notify creator
+        await ctx.telegram.sendMessage(
+          updatedProp.creator.telegramId,
+          `❌ **پیشنهاد معاملاتی شما (کد حواله ${updatedProp.code}) توسط مدیریت رد شد.**`
+        ).catch(err => console.error('Failed to notify creator of rejection:', err));
+
+        // Update admin message
+        const rejectMsgText = `❌ پیشنهاد شماره <code>${updatedProp.code}</code> رد صلاحیت و لغو شد.`;
+        
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+        if (hasPhoto) {
+          await ctx.editMessageCaption(rejectMsgText, { parse_mode: 'HTML' }).catch(() => {});
+        } else {
+          await ctx.editMessageText(rejectMsgText, { parse_mode: 'HTML' }).catch(() => {});
+        }
+
+      } catch (err) {
+        console.error('Error rejecting proposal:', err);
+        await ctx.reply('❌ خطا در رد آگهی.');
+      }
       return;
     }
   }
