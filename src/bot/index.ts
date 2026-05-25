@@ -5,6 +5,7 @@ import { createProposalWizard, CREATE_PROPOSAL_SCENE_ID, MyWizardContext } from 
 import { verifyUserWizard, VERIFY_USER_SCENE_ID } from './scenes/verifyUser';
 import { adminSearchWizard, ADMIN_SEARCH_SCENE_ID } from './scenes/adminSearch';
 import { adminEditUserWizard, adminRejectUserWizard, ADMIN_EDIT_USER_SCENE_ID, ADMIN_REJECT_USER_SCENE_ID } from './scenes/adminEditUser';
+import { adminEditPropWizard, ADMIN_EDIT_PROP_SCENE_ID } from './scenes/adminEditProp';
 import { handleDeepLink, handleDealCallbacks } from './handlers/deepLink';
 
 // Set up the custom context type for the bot
@@ -18,7 +19,8 @@ const stage = new Scenes.Stage<BotContext>([
   verifyUserWizard,
   adminSearchWizard,
   adminEditUserWizard,
-  adminRejectUserWizard
+  adminRejectUserWizard,
+  adminEditPropWizard
 ]);
 bot.use(session());
 bot.use(stage.middleware());
@@ -189,7 +191,10 @@ bot.command('admin', async (ctx) => {
           Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
           Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
         ],
-        [Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')],
+        [
+          Markup.button.callback('📋 مدیریت پیشنهادات', 'ADMIN_LIST_PROPOSALS'),
+          Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')
+        ],
         [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
       ])
     }
@@ -296,9 +301,6 @@ bot.on('callback_query', async (ctx) => {
     // 2. Admin Main Menu
     if (data === 'ADMIN_MAIN_MENU') {
       await ctx.answerCbQuery();
-      // If the current message has a photo, editMessageText fails.
-      // So, let's delete the photo message and reply with a fresh text menu!
-      // This is a common bug in Telegram bots when switching from a detailed user view (which has a photo) back to the main text-only menu.
       const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
       if (hasPhoto) {
         await ctx.deleteMessage().catch(() => {});
@@ -316,7 +318,10 @@ bot.on('callback_query', async (ctx) => {
                 Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
                 Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
               ],
-              [Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')],
+              [
+                Markup.button.callback('📋 مدیریت پیشنهادات', 'ADMIN_LIST_PROPOSALS'),
+                Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')
+              ],
               [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
             ])
           }
@@ -336,7 +341,10 @@ bot.on('callback_query', async (ctx) => {
                 Markup.button.callback('❌ رد صلاحیت شده‌ها', 'ADMIN_LIST_REJECTED'),
                 Markup.button.callback('🔍 جستجوی کاربر', 'ADMIN_SEARCH_USER')
               ],
-              [Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')],
+              [
+                Markup.button.callback('📋 مدیریت پیشنهادات', 'ADMIN_LIST_PROPOSALS'),
+                Markup.button.callback('📊 آمار کل سیستم', 'ADMIN_STATS')
+              ],
               [Markup.button.callback('❌ بستن منو', 'ADMIN_CLOSE')]
             ])
           }
@@ -393,11 +401,17 @@ bot.on('callback_query', async (ctx) => {
           orderBy: { updatedAt: 'desc' }
         });
 
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+
         if (users.length === 0 && page === 0) {
-          await ctx.editMessageText(
-            '👥 هیچ کاربر تاییدشده‌ای یافت نشد.',
-            Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]])
-          ).catch(() => {});
+          const emptyText = '👥 هیچ کاربر تاییدشده‌ای یافت نشد.';
+          const emptyMarkup = Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]]);
+          if (hasPhoto) {
+            await ctx.deleteMessage().catch(() => {});
+            await ctx.reply(emptyText, emptyMarkup);
+          } else {
+            await ctx.editMessageText(emptyText, emptyMarkup).catch(() => {});
+          }
           return;
         }
 
@@ -422,15 +436,21 @@ bot.on('callback_query', async (ctx) => {
         buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
 
         const totalPages = Math.ceil(total / pageSize) || 1;
-        await ctx.editMessageText(
-          `👥 <b>لیست کاربران تایید شده:</b>\n` +
+        const msgText = `👥 <b>لیست کاربران تایید شده:</b>\n` +
           `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> نفر)\n\n` +
-          `برای مشاهده مشخصات و مدیریت هر کاربر کلیک کنید:`,
-          {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard(buttons)
-          }
-        ).catch(() => {});
+          `برای مشاهده مشخصات و مدیریت هر کاربر کلیک کنید:`;
+
+        const markup = {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard(buttons)
+        };
+
+        if (hasPhoto) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.reply(msgText, markup as any);
+        } else {
+          await ctx.editMessageText(msgText, markup as any).catch(() => {});
+        }
       } catch (error) {
         console.error('Error listing approved users:', error);
       }
@@ -451,11 +471,17 @@ bot.on('callback_query', async (ctx) => {
           orderBy: { createdAt: 'desc' }
         });
 
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+
         if (users.length === 0 && page === 0) {
-          await ctx.editMessageText(
-            '⏳ هیچ درخواستی در انتظار تایید نیست.',
-            Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]])
-          ).catch(() => {});
+          const emptyText = '⏳ هیچ درخواستی در انتظار تایید نیست.';
+          const emptyMarkup = Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]]);
+          if (hasPhoto) {
+            await ctx.deleteMessage().catch(() => {});
+            await ctx.reply(emptyText, emptyMarkup);
+          } else {
+            await ctx.editMessageText(emptyText, emptyMarkup).catch(() => {});
+          }
           return;
         }
 
@@ -480,15 +506,21 @@ bot.on('callback_query', async (ctx) => {
         buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
 
         const totalPages = Math.ceil(total / pageSize) || 1;
-        await ctx.editMessageText(
-          `⏳ <b>لیست درخواست‌های در انتظار بررسی:</b>\n` +
+        const msgText = `⏳ <b>لیست درخواست‌های در انتظار بررسی:</b>\n` +
           `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> نفر)\n\n` +
-          `جهت بررسی هر کاربر کلیک کنید:`,
-          {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard(buttons)
-          }
-        ).catch(() => {});
+          `جهت بررسی هر کاربر کلیک کنید:`;
+
+        const markup = {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard(buttons)
+        };
+
+        if (hasPhoto) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.reply(msgText, markup as any);
+        } else {
+          await ctx.editMessageText(msgText, markup as any).catch(() => {});
+        }
       } catch (error) {
         console.error('Error listing pending users:', error);
       }
@@ -509,11 +541,17 @@ bot.on('callback_query', async (ctx) => {
           orderBy: { updatedAt: 'desc' }
         });
 
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+
         if (users.length === 0 && page === 0) {
-          await ctx.editMessageText(
-            '❌ هیچ کاربر رد صلاحیت شده‌ای یافت نشد.',
-            Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]])
-          ).catch(() => {});
+          const emptyText = '❌ هیچ کاربر رد صلاحیت شده‌ای یافت نشد.';
+          const emptyMarkup = Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]]);
+          if (hasPhoto) {
+            await ctx.deleteMessage().catch(() => {});
+            await ctx.reply(emptyText, emptyMarkup);
+          } else {
+            await ctx.editMessageText(emptyText, emptyMarkup).catch(() => {});
+          }
           return;
         }
 
@@ -538,15 +576,21 @@ bot.on('callback_query', async (ctx) => {
         buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
 
         const totalPages = Math.ceil(total / pageSize) || 1;
-        await ctx.editMessageText(
-          `❌ <b>لیست کاربران رد صلاحیت شده:</b>\n` +
+        const msgText = `❌ <b>لیست کاربران رد صلاحیت شده:</b>\n` +
           `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> نفر)\n\n` +
-          `برای مشاهده مشخصات و مدیریت هر کاربر کلیک کنید:`,
-          {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard(buttons)
-          }
-        ).catch(() => {});
+          `برای مشاهده مشخصات و مدیریت هر کاربر کلیک کنید:`;
+
+        const markup = {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard(buttons)
+        };
+
+        if (hasPhoto) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.reply(msgText, markup as any);
+        } else {
+          await ctx.editMessageText(msgText, markup as any).catch(() => {});
+        }
       } catch (error) {
         console.error('Error listing rejected users:', error);
       }
@@ -619,6 +663,11 @@ bot.on('callback_query', async (ctx) => {
         buttons.push([
           Markup.button.callback('✏️ تغییر وضعیت', `ADMIN_EDIT_status_${u.id}`),
           Markup.button.callback('🗑 حذف کامل از ربات', `ADMIN_USER_DELETE_${u.id}`)
+        ]);
+
+        // View User's Proposals row
+        buttons.push([
+          Markup.button.callback('📋 پیشنهادهای این کاربر', `ADMIN_USER_PROPS_${u.id}_0`)
         ]);
         
         // Back button based on status
@@ -880,6 +929,341 @@ bot.on('callback_query', async (ctx) => {
         console.error('Error in ADMIN_PROP_MANAGE_:', error);
         await ctx.answerCbQuery('❌ خطا در بررسی مشخصات.', { show_alert: true });
       }
+      return;
+    }
+
+    // 13. Admin List All Proposals (Paginated)
+    if (data === 'ADMIN_LIST_PROPOSALS' || data.startsWith('ADMIN_LIST_PROP_')) {
+      await ctx.answerCbQuery();
+      const page = data.startsWith('ADMIN_LIST_PROP_') ? parseInt(data.replace('ADMIN_LIST_PROP_', ''), 10) : 0;
+      const pageSize = 10;
+
+      try {
+        const total = await prisma.proposal.count({ where: { status: 'PENDING' } });
+        const props = await prisma.proposal.findMany({
+          where: { status: 'PENDING' },
+          skip: page * pageSize,
+          take: pageSize,
+          orderBy: { createdAt: 'desc' },
+          include: { creator: true }
+        });
+
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+
+        if (props.length === 0 && page === 0) {
+          const emptyText = '📋 هیچ پیشنهاد فعال و معلقی در سیستم یافت نشد.';
+          const emptyMarkup = Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_MAIN_MENU')]]);
+          if (hasPhoto) {
+            await ctx.deleteMessage().catch(() => {});
+            await ctx.reply(emptyText, emptyMarkup);
+          } else {
+            await ctx.editMessageText(emptyText, emptyMarkup).catch(() => {});
+          }
+          return;
+        }
+
+        const buttons = props.map(p => [
+          Markup.button.callback(
+            `[${p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}] ${p.amount.toLocaleString('fa-IR')} ${p.currency} - T (توسط ${p.creator.fullName || p.creator.firstName})`,
+            `ADMIN_PROP_VIEW_${p.id}`
+          )
+        ]);
+
+        const navRow = [];
+        if (page > 0) {
+          navRow.push(Markup.button.callback('⬅️ صفحه قبل', `ADMIN_LIST_PROP_${page - 1}`));
+        }
+        if ((page + 1) * pageSize < total) {
+          navRow.push(Markup.button.callback('صفحه بعد ➡️', `ADMIN_LIST_PROP_${page + 1}`));
+        }
+        if (navRow.length > 0) {
+          buttons.push(navRow);
+        }
+
+        buttons.push([Markup.button.callback('🔙 بازگشت به منو', 'ADMIN_MAIN_MENU')]);
+
+        const totalPages = Math.ceil(total / pageSize) || 1;
+        const msgText = `📋 <b>مدیریت پیشنهادات فعال کل سیستم:</b>\n` +
+          `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> پیشنهاد فعال)\n\n` +
+          `برای مشاهده جزئیات و مدیریت هر پیشنهاد کلیک کنید:`;
+
+        const markup = {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard(buttons)
+        };
+
+        if (hasPhoto) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.reply(msgText, markup as any);
+        } else {
+          await ctx.editMessageText(msgText, markup as any).catch(() => {});
+        }
+      } catch (error) {
+        console.error('Error listing proposals for admin:', error);
+      }
+      return;
+    }
+
+    // 14. Admin List Proposals of a Specific User (Paginated)
+    if (data.startsWith('ADMIN_USER_PROPS_')) {
+      await ctx.answerCbQuery();
+      const parts = data.replace('ADMIN_USER_PROPS_', '').split('_');
+      if (parts.length < 2) return;
+      const userId = parseInt(parts[0], 10);
+      const page = parseInt(parts[1], 10) || 0;
+      if (isNaN(userId)) return;
+
+      const pageSize = 10;
+      try {
+        const u = await prisma.user.findUnique({ where: { id: userId } });
+        if (!u) return;
+
+        const total = await prisma.proposal.count({ where: { creatorId: userId } });
+        const props = await prisma.proposal.findMany({
+          where: { creatorId: userId },
+          skip: page * pageSize,
+          take: pageSize,
+          orderBy: { createdAt: 'desc' }
+        });
+
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+
+        if (props.length === 0 && page === 0) {
+          const emptyText = `📋 کاربر **${u.fullName || u.firstName}** هیچ پیشنهادی ثبت نکرده است.`;
+          const emptyMarkup = Markup.inlineKeyboard([[Markup.button.callback('👤 بازگشت به پرونده کاربر', `ADMIN_USER_VIEW_${userId}`)]]);
+          if (hasPhoto) {
+            await ctx.deleteMessage().catch(() => {});
+            await ctx.reply(emptyText, emptyMarkup);
+          } else {
+            await ctx.editMessageText(emptyText, emptyMarkup).catch(() => {});
+          }
+          return;
+        }
+
+        const buttons = props.map(p => [
+          Markup.button.callback(
+            `[${p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}] ${p.amount.toLocaleString('fa-IR')} ${p.currency} [${p.status}]`,
+            `ADMIN_PROP_VIEW_${p.id}`
+          )
+        ]);
+
+        const navRow = [];
+        if (page > 0) {
+          navRow.push(Markup.button.callback('⬅️ صفحه قبل', `ADMIN_USER_PROPS_${userId}_${page - 1}`));
+        }
+        if ((page + 1) * pageSize < total) {
+          navRow.push(Markup.button.callback('صفحه بعد ➡️', `ADMIN_USER_PROPS_${userId}_${page + 1}`));
+        }
+        if (navRow.length > 0) {
+          buttons.push(navRow);
+        }
+
+        buttons.push([Markup.button.callback('👤 بازگشت به مشخصات کاربر', `ADMIN_USER_VIEW_${userId}`)]);
+
+        const totalPages = Math.ceil(total / pageSize) || 1;
+        const msgText = `📋 <b>پیشنهادات کاربر: ${u.fullName || u.firstName}</b>\n` +
+          `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> پیشنهاد)\n\n` +
+          `جهت مدیریت پیشنهاد کلیک کنید:`;
+
+        const markup = {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard(buttons)
+        };
+
+        if (hasPhoto) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.reply(msgText, markup as any);
+        } else {
+          await ctx.editMessageText(msgText, markup as any).catch(() => {});
+        }
+      } catch (error) {
+        console.error('Error listing user proposals for admin:', error);
+      }
+      return;
+    }
+
+    // 15. Admin View Proposal Details
+    if (data.startsWith('ADMIN_PROP_VIEW_')) {
+      const propId = parseInt(data.replace('ADMIN_PROP_VIEW_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(propId)) return;
+
+      try {
+        const prop = await prisma.proposal.findUnique({
+          where: { id: propId },
+          include: { creator: true }
+        });
+
+        if (!prop) {
+          await ctx.reply('❌ پیشنهاد مورد نظر یافت نشد.');
+          return;
+        }
+
+        const details =
+          `📋 <b>مشخصات کامل پیشنهاد معاملاتی:</b>\n\n` +
+          `🔹 <b>شناسه پیشنهاد:</b> <code>#${prop.id}</code>\n` +
+          `🔹 <b>ثبت‌کننده:</b> <code>${prop.creator.fullName || prop.creator.firstName}</code> (@${prop.creator.username || 'ندارد'})\n` +
+          `🔹 <b>شناسه تلگرام ثبت‌کننده:</b> <code>${prop.creator.telegramId}</code>\n` +
+          `🔹 <b>نوع معامله:</b> ${prop.type === 'BUY' ? '🟢 خرید (Buy)' : '🔴 فروش (Sell)'}\n` +
+          `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
+          `🔹 <b>مقدار:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
+          `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
+          `🔹 <b>مبلغ کل:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
+          `🔹 <b>وضعیت کنونی:</b> <code>${prop.status}</code>\n` +
+          `🔹 <b>تاریخ ثبت:</b> <code>${prop.createdAt.toLocaleString('fa-IR')}</code>`;
+
+        const buttons = [];
+        
+        if (prop.status === 'PENDING') {
+          buttons.push([
+            Markup.button.callback('❌ لغو پیشنهاد در گروه', `ADMIN_PROP_CANCEL_${prop.id}`)
+          ]);
+          buttons.push([
+            Markup.button.callback('✏️ ویرایش مقدار', `ADMIN_PROP_EDIT_amount_${prop.id}`),
+            Markup.button.callback('✏️ ویرایش قیمت', `ADMIN_PROP_EDIT_price_${prop.id}`)
+          ]);
+        }
+        
+        buttons.push([
+          Markup.button.callback('🗑 حذف کامل از دیتابیس', `ADMIN_PROP_DELETE_${prop.id}`)
+        ]);
+        
+        buttons.push([
+          Markup.button.callback('👤 پرونده کاربر ثبت‌کننده', `ADMIN_USER_VIEW_${prop.creator.id}`),
+          Markup.button.callback('🔙 لیست پیشنهادهای کاربر', `ADMIN_USER_PROPS_${prop.creator.id}_0`)
+        ]);
+
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+        if (hasPhoto) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.reply(details, {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons)
+          });
+        } else {
+          await ctx.editMessageText(details, {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons)
+          }).catch(() => {});
+        }
+      } catch (error) {
+        console.error('Error viewing proposal details:', error);
+      }
+      return;
+    }
+
+    // 16. Admin Cancel Proposal
+    if (data.startsWith('ADMIN_PROP_CANCEL_')) {
+      const propId = parseInt(data.replace('ADMIN_PROP_CANCEL_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(propId)) return;
+
+      try {
+        const prop = await prisma.proposal.findUnique({
+          where: { id: propId },
+          include: { creator: true }
+        });
+
+        if (!prop) {
+          await ctx.reply('❌ پیشنهاد یافت نشد.');
+          return;
+        }
+
+        await prisma.proposal.update({
+          where: { id: propId },
+          data: { status: 'CANCELLED' }
+        });
+
+        await ctx.reply(`✅ پیشنهاد شماره #${propId} با موفقیت لغو شد.`);
+        
+        await ctx.telegram.sendMessage(
+          prop.creator.telegramId,
+          `⚠️ **پیشنهاد معامله شما (شماره #${propId}) توسط مدیریت ربات لغو شد.**`
+        ).catch(() => {});
+
+        if (prop.groupMessageId) {
+          const updatedGroupText =
+            `<b>❌ #پیشنهاد_لغو_شد</b>\n\n` +
+            `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
+            `🔹 <b>مقدار:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
+            `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n` +
+            `⚠️ این پیشنهاد توسط مدیریت ربات لغو گردید.`;
+
+          await ctx.telegram.editMessageText(
+            config.GROUP_CHAT_ID,
+            prop.groupMessageId,
+            undefined,
+            updatedGroupText,
+            { parse_mode: 'HTML' }
+          ).catch(err => console.error('Failed to update group message on admin cancel:', err));
+        }
+
+        const updatedTarget = `ADMIN_PROP_VIEW_${propId}`;
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+        if (hasPhoto) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.reply('در حال بارگذاری مجدد...', Markup.inlineKeyboard([[Markup.button.callback('🔄 مشاهده پرونده پیشنهاد', updatedTarget)]]));
+        } else {
+          await ctx.editMessageText(
+            '🔄 پیشنهاد لغو شد. جهت مشاهده وضعیت جدید کلیک کنید:',
+            Markup.inlineKeyboard([[Markup.button.callback('🔄 مشاهده پرونده پیشنهاد', updatedTarget)]])
+          ).catch(() => {});
+        }
+
+      } catch (error) {
+        console.error('Error in ADMIN_PROP_CANCEL_:', error);
+        await ctx.reply('❌ خطا در لغو پیشنهاد.');
+      }
+      return;
+    }
+
+    // 17. Admin Delete Proposal
+    if (data.startsWith('ADMIN_PROP_DELETE_')) {
+      const propId = parseInt(data.replace('ADMIN_PROP_DELETE_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(propId)) return;
+
+      try {
+        const prop = await prisma.proposal.findUnique({
+          where: { id: propId },
+          include: { creator: true }
+        });
+
+        if (!prop) {
+          await ctx.reply('❌ پیشنهاد یافت نشد.');
+          return;
+        }
+
+        if (prop.groupMessageId) {
+          await ctx.telegram.deleteMessage(config.GROUP_CHAT_ID, prop.groupMessageId)
+            .catch(err => console.error('Failed to delete group message:', err));
+        }
+
+        await prisma.proposal.delete({
+          where: { id: propId }
+        });
+
+        await ctx.reply(`🗑 پیشنهاد شماره #${propId} به طور کامل از دیتابیس و گروه حذف شد.`);
+        await ctx.deleteMessage().catch(() => {});
+
+      } catch (error) {
+        console.error('Error deleting proposal:', error);
+        await ctx.reply('❌ خطا در حذف کامل پیشنهاد.');
+      }
+      return;
+    }
+
+    // 18. Admin Edit Proposal Field Trigger
+    if (data.startsWith('ADMIN_PROP_EDIT_')) {
+      await ctx.answerCbQuery();
+      const parts = data.replace('ADMIN_PROP_EDIT_', '').split('_');
+      if (parts.length < 2) return;
+
+      const field = parts[0] as 'amount' | 'price';
+      const proposalId = parseInt(parts[1], 10);
+      if (isNaN(proposalId)) return;
+
+      await ctx.scene.enter(ADMIN_EDIT_PROP_SCENE_ID, { proposalId, field });
       return;
     }
   }
