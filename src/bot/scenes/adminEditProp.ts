@@ -121,8 +121,7 @@ export const adminEditPropWizard = new Scenes.WizardScene<MyEditPropContext>(
             {
               parse_mode: 'HTML',
               ...Markup.inlineKeyboard([
-                [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)],
-                [Markup.button.callback('⚙️ مدیریت پیشنهاد (ادمین)', `ADMIN_PROP_MANAGE_${prop.id}`)]
+                [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)]
               ])
             }
           ).catch(err => console.error('Failed to update group message on admin edit:', err));

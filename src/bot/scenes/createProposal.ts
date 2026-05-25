@@ -287,18 +287,49 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
           // Deep link to bot: https://t.me/BotUsername?start=deal_PROPOSAL_ID
           const deepLinkUrl = `https://t.me/${config.BOT_USERNAME}?start=deal_${proposal.id}`;
 
-          // 4. Send to group
+          // 4. Send to group (Only has user button)
           const sentMessage = await ctx.telegram.sendMessage(
             config.GROUP_CHAT_ID,
             groupMsgText,
             {
               parse_mode: 'HTML',
               ...Markup.inlineKeyboard([
-                [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)],
-                [Markup.button.callback('⚙️ مدیریت پیشنهاد (ادمین)', `ADMIN_PROP_MANAGE_${proposal.id}`)]
+                [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)]
               ])
             }
           );
+
+          // Send copy with admin control keyboard privately to Admin
+          const adminMsgText =
+            `🔔 <b>پیشنهاد جدید معاملاتی ثبت شد:</b>\n\n` +
+            `<b>${typeHeader}</b>\n\n` +
+            `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
+            `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
+            `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
+            `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n` +
+            `👤 <b>توسط:</b> ${userMention}\n\n` +
+            `⚙️ <b>دکمه‌های مدیریت پیشنهاد:</b>`;
+
+          await ctx.telegram.sendMessage(
+            config.ADMIN_CHAT_ID,
+            adminMsgText,
+            {
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard([
+                [
+                  Markup.button.callback('❌ لغو پیشنهاد', `ADMIN_PROP_CANCEL_${proposal.id}`),
+                  Markup.button.callback('🗑 حذف پیشنهاد', `ADMIN_PROP_DELETE_${proposal.id}`)
+                ],
+                [
+                  Markup.button.callback('✏️ مقدار', `ADMIN_PROP_EDIT_amount_${proposal.id}`),
+                  Markup.button.callback('✏️ قیمت', `ADMIN_PROP_EDIT_price_${proposal.id}`)
+                ],
+                [
+                  Markup.button.callback('👤 پرونده کاربر ثبت‌کننده', `ADMIN_USER_VIEW_${dbUser.id}`)
+                ]
+              ])
+            }
+          ).catch(err => console.error('Failed to notify admin about new proposal:', err));
 
           // 5. Update proposal with the group message ID
           await prisma.proposal.update({
