@@ -8,15 +8,21 @@ generator client {
 }
 
 model User {
-  id          Int        @id @default(autoincrement())
-  telegramId  String     @unique // Stored as string to prevent overflow/serialization issues
-  username    String?
-  firstName   String
-  lastName    String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  proposals   Proposal[] @relation("UserProposals")
-  deals       Deal[]     @relation("UserDeals")
+  id                 Int        @id @default(autoincrement())
+  telegramId         String     @unique // Stored as string to prevent overflow/serialization issues
+  username           String?
+  firstName          String
+  lastName           String?
+  verificationStatus String     @default("UNVERIFIED") // UNVERIFIED, PENDING, APPROVED, REJECTED
+  fullName           String?
+  country            String?
+  phoneNumber        String?
+  documentFileId     String?
+  rejectReason       String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  proposals          Proposal[] @relation("UserProposals")
+  deals              Deal[]     @relation("UserDeals")
 }
 
 model Proposal {

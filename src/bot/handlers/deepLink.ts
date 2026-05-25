@@ -22,6 +22,19 @@ export async function handleDeepLink(ctx: Context, payload: string) {
   if (!from) return;
 
   try {
+    // Check if the user is verified
+    const dbAcceptor = await prisma.user.findUnique({
+      where: { telegramId: from.id.toString() }
+    });
+
+    if (!dbAcceptor || dbAcceptor.verificationStatus !== 'APPROVED') {
+      await ctx.reply(
+        '⚠️ جهت شرکت در معاملات و پذیرش پیشنهادها، ابتدا باید در ربات احراز هویت شده و عضو گروه باشید.',
+        Markup.keyboard([['🔐 شروع احراز هویت']]).resize()
+      );
+      return;
+    }
+
     // 1. Fetch proposal and creator
     const proposal = await prisma.proposal.findUnique({
       where: { id: proposalId },
