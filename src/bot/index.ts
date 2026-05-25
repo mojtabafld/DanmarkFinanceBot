@@ -1369,12 +1369,22 @@ bot.on('callback_query', async (ctx) => {
           data: { status: 'ACCEPTED' }
         });
         
-        // Lock proposal (do not deduct amount yet)
-        const lockedProposal = await tx.proposal.update({
-          where: { id: offer.proposalId },
-          data: { status: 'LOCKED' },
-          include: { creator: true }
-        });
+        // Determine status based on remaining amount
+        const remainingAmount = offer.proposal.amount - offer.amount;
+        let lockedProposal;
+        if (remainingAmount <= 0.0001) {
+          lockedProposal = await tx.proposal.update({
+            where: { id: offer.proposalId },
+            data: { amount: 0, status: 'LOCKED' },
+            include: { creator: true }
+          });
+        } else {
+          lockedProposal = await tx.proposal.update({
+            where: { id: offer.proposalId },
+            data: { amount: remainingAmount }, // status remains PENDING
+            include: { creator: true }
+          });
+        }
         
         // Create a deal record with status PENDING_ADMIN
         const deal = await tx.deal.create({
@@ -1586,13 +1596,13 @@ bot.on('callback_query', async (ctx) => {
           throw new Error('PROPOSAL_NOT_FOUND');
         }
 
-        const remainingAmount = freshProposal.amount - deal.amount;
-        let updatedProposal;
+        let updatedProposal = freshProposal;
 
-        if (remainingAmount <= 0.0001) {
+        // If the proposal status is LOCKED (meaning it was fully traded at initiation)
+        if (freshProposal.status === 'LOCKED') {
           updatedProposal = await tx.proposal.update({
             where: { id: deal.proposalId },
-            data: { amount: 0, status: 'COMPLETED' },
+            data: { status: 'COMPLETED' },
             include: { creator: true }
           });
 
@@ -1602,15 +1612,14 @@ bot.on('callback_query', async (ctx) => {
             data: { status: 'REJECTED' }
           });
         } else {
-          updatedProposal = await tx.proposal.update({
-            where: { id: deal.proposalId },
-            data: { amount: remainingAmount, status: 'PENDING' },
-            include: { creator: true }
-          });
-
-          // Reject pending offers whose amount is larger than remainingAmount
+          // It's still PENDING (partial deal approved).
+          // We just reject any pending offers that exceed the remaining amount.
           await tx.counterOffer.updateMany({
-            where: { proposalId: deal.proposalId, amount: { gt: remainingAmount }, status: 'PENDING' },
+            where: {
+              proposalId: deal.proposalId,
+              amount: { gt: freshProposal.amount },
+              status: 'PENDING'
+            },
             data: { status: 'REJECTED' }
           });
         }
@@ -1706,10 +1715,23 @@ bot.on('callback_query', async (ctx) => {
           data: { status: 'REJECTED' }
         });
 
-        // Revert proposal status to PENDING
+        // Get proposal details
+        const freshProposal = await tx.proposal.findUnique({
+          where: { id: deal.proposalId }
+        });
+
+        if (!freshProposal) {
+          throw new Error('PROPOSAL_NOT_FOUND');
+        }
+
+        // Revert proposal status to PENDING and add back the amount
+        const newAmount = freshProposal.amount + deal.amount;
         await tx.proposal.update({
           where: { id: deal.proposalId },
-          data: { status: 'PENDING' }
+          data: {
+            amount: newAmount,
+            status: 'PENDING'
+          }
         });
 
         // If it was based on counter offer, mark that counter offer as REJECTED

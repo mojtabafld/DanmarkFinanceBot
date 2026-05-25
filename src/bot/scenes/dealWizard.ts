@@ -231,12 +231,22 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
             }
           });
           
-          // Lock proposal (do not deduct amount yet)
-          const updatedProposal = await tx.proposal.update({
-            where: { id: freshProposal.id },
-            data: { status: 'LOCKED' },
-            include: { creator: true }
-          });
+          // Determine status based on remaining amount
+          const remainingAmount = freshProposal.amount - amount;
+          let updatedProposal;
+          if (remainingAmount <= 0.0001) {
+            updatedProposal = await tx.proposal.update({
+              where: { id: freshProposal.id },
+              data: { amount: 0, status: 'LOCKED' },
+              include: { creator: true }
+            });
+          } else {
+            updatedProposal = await tx.proposal.update({
+              where: { id: freshProposal.id },
+              data: { amount: remainingAmount }, // status remains PENDING
+              include: { creator: true }
+            });
+          }
           
           return { deal, proposal: updatedProposal, acceptor };
         });
