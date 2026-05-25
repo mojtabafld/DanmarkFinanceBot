@@ -279,6 +279,11 @@ bot.hears('❓ راهنما', checkVerified, async (ctx) => {
   );
 });
 
+// Catch-all text handler for verified users to restore keyboard
+bot.on('text', checkVerified, async (ctx) => {
+  await ctx.reply('لطفاً جهت استفاده از امکانات ربات، یکی از دکمه‌های زیر را انتخاب کنید:', mainKeyboard);
+});
+
 // Handle standard callback queries
 bot.on('callback_query', async (ctx) => {
   if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
@@ -805,9 +810,12 @@ bot.on('callback_query', async (ctx) => {
           `🎉 **احراز هویت شما با موفقیت توسط مدیریت تایید شد!**\n\n` +
           `لینک عضویت یک‌بار مصرف شما در گروه معاملاتی دانمارک (دارای اعتبار ۲۴ ساعته):\n` +
           `🔗 ${inviteLink.invite_link}\n\n` +
-          `پس از عضویت در گروه، با اجرای مجدد ربات می‌توانید پیشنهادهای خود را ثبت کنید.`;
+          `پس از عضویت در گروه، می‌توانید پیشنهادهای خود را از دکمه‌های زیر ثبت و مدیریت کنید.`;
         
-        await ctx.telegram.sendMessage(user.telegramId, userMsg, { parse_mode: 'Markdown' });
+        await ctx.telegram.sendMessage(user.telegramId, userMsg, {
+          parse_mode: 'Markdown',
+          ...mainKeyboard
+        });
 
         // Update Admin Message
         const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;

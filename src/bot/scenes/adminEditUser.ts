@@ -2,6 +2,11 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 
+const mainKeyboard = Markup.keyboard([
+  ['📝 ثبت پیشنهاد جدید'],
+  ['📋 پیشنهادهای فعال من', '❓ راهنما']
+]).resize();
+
 export const ADMIN_EDIT_USER_SCENE_ID = 'ADMIN_EDIT_USER_SCENE';
 export const ADMIN_REJECT_USER_SCENE_ID = 'ADMIN_REJECT_USER_SCENE';
 
@@ -140,8 +145,11 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
               `مدیریت وضعیت شما را به «تایید شده» تغییر داد.\n` +
               `لینک عضویت یک‌بار مصرف شما در گروه معاملاتی (دارای اعتبار ۲۴ ساعته):\n` +
               `🔗 ${inviteLink.invite_link}\n\n` +
-              `پس از عضویت در گروه، با اجرای مجدد ربات می‌توانید پیشنهادهای خود را ثبت کنید.`,
-              { parse_mode: 'Markdown' }
+              `پس از عضویت در گروه، می‌توانید پیشنهادهای خود را از دکمه‌های زیر ثبت و مدیریت کنید.`,
+              {
+                parse_mode: 'Markdown',
+                ...mainKeyboard
+              }
             ).catch(() => {});
           }
 
