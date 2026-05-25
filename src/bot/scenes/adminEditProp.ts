@@ -2,6 +2,7 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { updateGroupProposalMessage } from '../utils/groupMessage';
+import { mainKeyboard } from '../utils/keyboards';
 
 export const ADMIN_EDIT_PROP_SCENE_ID = 'ADMIN_EDIT_PROP_SCENE';
 
@@ -68,14 +69,14 @@ export const adminEditPropWizard = new Scenes.WizardScene<MyEditPropContext>(
     const field = ctx.wizard.state.field;
     
     if (!proposalId || !field) {
-      await ctx.reply('❌ اطلاعات پیشنهاد یافت نشد.', Markup.removeKeyboard());
+      await ctx.reply('❌ اطلاعات پیشنهاد یافت نشد.', mainKeyboard);
       return ctx.scene.leave();
     }
     
     if (ctx.message && 'text' in ctx.message) {
       const text = ctx.message.text.trim();
       if (text === '❌ انصراف' || text === '/cancel') {
-        await ctx.reply('❌ عملیات ویرایش لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ عملیات ویرایش لغو شد.', mainKeyboard);
         return ctx.scene.leave();
       }
       
@@ -93,7 +94,7 @@ export const adminEditPropWizard = new Scenes.WizardScene<MyEditPropContext>(
           include: { creator: true }
         });
         
-        await ctx.reply('✅ ویرایش پیشنهاد با موفقیت انجام شد.', Markup.removeKeyboard());
+        await ctx.reply('✅ ویرایش پیشنهاد با موفقیت انجام شد.', mainKeyboard);
         
         // Update the message in the group to show updated details
         if (prop.groupMessageId) {
@@ -108,7 +109,7 @@ export const adminEditPropWizard = new Scenes.WizardScene<MyEditPropContext>(
         
       } catch (error) {
         console.error('Error saving edited proposal field:', error);
-        await ctx.reply('❌ خطا در ذخیره ویرایش.', Markup.removeKeyboard());
+        await ctx.reply('❌ خطا در ذخیره ویرایش.', mainKeyboard);
       }
       return ctx.scene.leave();
     }

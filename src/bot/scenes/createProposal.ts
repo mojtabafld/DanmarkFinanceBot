@@ -1,6 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
+import { mainKeyboard } from '../utils/keyboards';
 
 // Define the state interface
 interface ProposalState {
@@ -152,7 +153,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
     if ('text' in ctx.message!) {
       const text = ctx.message.text.trim();
       if (text === 'انصراف' || text === '/cancel') {
-        await ctx.reply('❌ ثبت پیشنهاد لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ ثبت پیشنهاد لغو شد.', mainKeyboard);
         return ctx.scene.leave();
       }
 
@@ -178,7 +179,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
     if ('text' in ctx.message!) {
       const text = ctx.message.text.trim();
       if (text === 'انصراف' || text === '/cancel') {
-        await ctx.reply('❌ ثبت پیشنهاد لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ ثبت پیشنهاد لغو شد.', mainKeyboard);
         return ctx.scene.leave();
       }
 
@@ -227,7 +228,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
       await ctx.answerCbQuery();
 
       if (data === 'CANCEL_WIZARD') {
-        await ctx.reply('❌ ثبت پیشنهاد لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ ثبت پیشنهاد لغو شد.', mainKeyboard);
         return ctx.scene.leave();
       }
 
@@ -339,14 +340,14 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
 
           await ctx.reply(
             '✅ پیشنهاد شما با موفقیت ثبت و به گروه ارسال شد.',
-            Markup.removeKeyboard()
+            mainKeyboard
           );
 
         } catch (error) {
           console.error('Error saving proposal:', error);
           await ctx.reply(
             '❌ متاسفانه در ثبت پیشنهاد خطایی رخ داد. لطفا مجددا تلاش کنید.',
-            Markup.removeKeyboard()
+            mainKeyboard
           );
         }
 

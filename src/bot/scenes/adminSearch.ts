@@ -1,5 +1,6 @@
 import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
+import { mainKeyboard } from '../utils/keyboards';
 
 export const ADMIN_SEARCH_SCENE_ID = 'ADMIN_SEARCH_SCENE';
 
@@ -27,7 +28,7 @@ export const adminSearchWizard = new Scenes.WizardScene<AdminSearchContext>(
     
     const query = ctx.message.text.trim();
     if (query === '❌ انصراف' || query === '/cancel') {
-      await ctx.reply('❌ عملیات جستجو لغو شد.', Markup.removeKeyboard());
+      await ctx.reply('❌ عملیات جستجو لغو شد.', mainKeyboard);
       return ctx.scene.leave();
     }
     
@@ -54,7 +55,7 @@ export const adminSearchWizard = new Scenes.WizardScene<AdminSearchContext>(
       if (users.length === 0) {
         await ctx.reply(
           `❌ هیچ کاربری منطبق با عبارت "${query}" یافت نشد.`,
-          Markup.removeKeyboard()
+          mainKeyboard
         );
         return ctx.scene.leave();
       }
@@ -72,11 +73,11 @@ export const adminSearchWizard = new Scenes.WizardScene<AdminSearchContext>(
         Markup.inlineKeyboard(buttons)
       );
       
-      await ctx.reply('منوی دکمه‌های کیبورد حذف شد. لطفاً یکی از کاربران بالا را برای مشاهده جزئیات انتخاب کنید.', Markup.removeKeyboard());
+      await ctx.reply('نتایج جستجو بارگذاری شد. لطفاً یکی از کاربران بالا را برای مشاهده جزئیات انتخاب کنید.', mainKeyboard);
       return ctx.scene.leave();
     } catch (error) {
       console.error('Error searching users:', error);
-      await ctx.reply('❌ خطا در جستجوی کاربران.', Markup.removeKeyboard());
+      await ctx.reply('❌ خطا در جستجوی کاربران.', mainKeyboard);
       return ctx.scene.leave();
     }
   }

@@ -1,11 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
-
-const mainKeyboard = Markup.keyboard([
-  ['📝 ثبت پیشنهاد جدید'],
-  ['📋 پیشنهادهای فعال من', '❓ راهنما']
-]).resize();
+import { mainKeyboard } from '../utils/keyboards';
 
 export const ADMIN_EDIT_USER_SCENE_ID = 'ADMIN_EDIT_USER_SCENE';
 export const ADMIN_REJECT_USER_SCENE_ID = 'ADMIN_REJECT_USER_SCENE';
@@ -99,7 +95,7 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
     const field = ctx.wizard.state.field;
     
     if (!userId || !field) {
-      await ctx.reply('❌ خطا: اطلاعات کاربر یافت نشد.', Markup.removeKeyboard());
+      await ctx.reply('❌ خطا: اطلاعات کاربر یافت نشد.', mainKeyboard);
       return ctx.scene.leave();
     }
     
@@ -108,7 +104,7 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
       await ctx.answerCbQuery();
       
       if (data === 'CANCEL_EDIT') {
-        await ctx.reply('❌ عملیات لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ عملیات لغو شد.', mainKeyboard);
         return ctx.scene.leave();
       }
       
@@ -168,7 +164,7 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
     if (ctx.message && 'text' in ctx.message) {
       const text = ctx.message.text.trim();
       if (text === '❌ انصراف' || text === '/cancel') {
-        await ctx.reply('❌ عملیات لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ عملیات لغو شد.', mainKeyboard);
         return ctx.scene.leave();
       }
       
@@ -199,14 +195,14 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
           data: updateData
         });
         
-        await ctx.reply(`✅ ویرایش با موفقیت انجام شد.`, Markup.removeKeyboard());
+        await ctx.reply(`✅ ویرایش با موفقیت انجام شد.`, mainKeyboard);
         await ctx.reply(
           `مشخصات جدید کاربر **${user.fullName || user.firstName}** ثبت شد.`,
           Markup.inlineKeyboard([[Markup.button.callback('👤 مشاهده مشخصات کاربر', `ADMIN_USER_VIEW_${user.id}`)]])
         );
       } catch (error) {
         console.error('Error saving edited user field:', error);
-        await ctx.reply('❌ خطا در ذخیره ویرایش.', Markup.removeKeyboard());
+        await ctx.reply('❌ خطا در ذخیره ویرایش.', mainKeyboard);
       }
       return ctx.scene.leave();
     }
@@ -271,14 +267,14 @@ export const adminRejectUserWizard = new Scenes.WizardScene<MyRejectUserContext>
   async (ctx) => {
     const userId = ctx.wizard.state.userId;
     if (!userId) {
-      await ctx.reply('❌ اطلاعات کاربر یافت نشد.', Markup.removeKeyboard());
+      await ctx.reply('❌ اطلاعات کاربر یافت نشد.', mainKeyboard);
       return ctx.scene.leave();
     }
     
     if (ctx.message && 'text' in ctx.message) {
       const reason = ctx.message.text.trim();
       if (reason === '❌ انصراف' || reason === '/cancel') {
-        await ctx.reply('❌ عملیات رد درخواست لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ عملیات رد درخواست لغو شد.', mainKeyboard);
         return ctx.scene.leave();
       }
       
@@ -306,7 +302,7 @@ export const adminRejectUserWizard = new Scenes.WizardScene<MyRejectUserContext>
         
         await ctx.reply(
           `🚫 درخواست کاربر **${user.fullName || user.firstName}** رد شد، علت برای وی ارسال و از گروه معاملاتی اخراج گردید.`,
-          Markup.removeKeyboard()
+          mainKeyboard
         );
         
         await ctx.reply(
@@ -316,7 +312,7 @@ export const adminRejectUserWizard = new Scenes.WizardScene<MyRejectUserContext>
         
       } catch (error) {
         console.error('Error rejecting user in wizard:', error);
-        await ctx.reply('❌ خطا در رد درخواست کاربر.', Markup.removeKeyboard());
+        await ctx.reply('❌ خطا در رد درخواست کاربر.', mainKeyboard);
       }
       return ctx.scene.leave();
     }

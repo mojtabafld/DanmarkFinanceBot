@@ -9,6 +9,7 @@ import { adminEditPropWizard, ADMIN_EDIT_PROP_SCENE_ID } from './scenes/adminEdi
 import { handleDeepLink, handleDealCallbacks } from './handlers/deepLink';
 import { counterOfferWizard, COUNTER_OFFER_SCENE_ID } from './scenes/counterOffer';
 import { updateGroupProposalMessage } from './utils/groupMessage';
+import { mainKeyboard, verifyStartKeyboard } from './utils/keyboards';
 
 // Set up the custom context type for the bot
 export interface BotContext extends MyWizardContext {}
@@ -28,11 +29,7 @@ const stage = new Scenes.Stage<BotContext>([
 bot.use(session());
 bot.use(stage.middleware());
 
-// Main Keyboard Markup (For Approved Users)
-const mainKeyboard = Markup.keyboard([
-  ['📝 ثبت پیشنهاد جدید'],
-  ['📋 پیشنهادهای فعال من', '❓ راهنما']
-]).resize();
+
 
 // Helper middleware to check if user is verified
 const checkVerified = async (ctx: BotContext, next: () => Promise<void>) => {
@@ -65,7 +62,7 @@ const checkVerified = async (ctx: BotContext, next: () => Promise<void>) => {
           '⚠️ کاربر گرامی، احراز هویت شما تایید شده است، اما برای ثبت پیشنهاد یا فعالیت در ربات باید عضو گروه معاملاتی باشید.\n\n' +
           'لطفاً ابتدا از طریق لینک زیر وارد گروه شوید و سپس اقدام کنید:\n' +
           `🔗 ${inviteLink.invite_link}`,
-          Markup.removeKeyboard()
+          mainKeyboard
         );
         return;
       } catch (err) {
@@ -144,7 +141,7 @@ bot.start(async (ctx) => {
       await ctx.reply(
         `⏳ مدارک احراز هویت شما قبلاً ارسال شده و در حال بررسی توسط مدیریت است.\n` +
         `پس از تایید ادمین، لینک ورود به گروه معاملاتی برای شما ارسال خواهد شد.`,
-        Markup.removeKeyboard()
+        verifyStartKeyboard
       );
       return;
     }

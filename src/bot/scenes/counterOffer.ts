@@ -2,6 +2,7 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { updateGroupProposalMessage } from '../utils/groupMessage';
+import { mainKeyboard } from '../utils/keyboards';
 
 export const COUNTER_OFFER_SCENE_ID = 'COUNTER_OFFER_SCENE';
 
@@ -104,14 +105,14 @@ export const counterOfferWizard = new Scenes.WizardScene<MyCounterOfferContext>(
   async (ctx) => {
     const proposalId = ctx.wizard.state.proposalId;
     if (!proposalId) {
-      await ctx.reply('❌ اطلاعات پیشنهاد نامعتبر است.', Markup.removeKeyboard());
+      await ctx.reply('❌ اطلاعات پیشنهاد نامعتبر است.', mainKeyboard);
       return ctx.scene.leave();
     }
     
     if (ctx.message && 'text' in ctx.message) {
       const text = ctx.message.text.trim();
       if (text === '❌ انصراف' || text === '/cancel') {
-        await ctx.reply('❌ عملیات ثبت پیشنهاد قیمت لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ عملیات ثبت پیشنهاد قیمت لغو شد.', mainKeyboard);
         return ctx.scene.leave();
       }
       
@@ -128,7 +129,7 @@ export const counterOfferWizard = new Scenes.WizardScene<MyCounterOfferContext>(
         });
         
         if (!proposal || proposal.status !== 'PENDING') {
-          await ctx.reply('⚠️ متاسفانه این پیشنهاد دیگر فعال نیست.', Markup.removeKeyboard());
+          await ctx.reply('⚠️ متاسفانه این پیشنهاد دیگر فعال نیست.', mainKeyboard);
           return ctx.scene.leave();
         }
         
@@ -171,7 +172,7 @@ export const counterOfferWizard = new Scenes.WizardScene<MyCounterOfferContext>(
           }
         });
         
-        await ctx.reply('✅ پیشنهاد قیمت شما با موفقیت ثبت شد و به اطلاع سازنده رسید.', Markup.removeKeyboard());
+        await ctx.reply('✅ پیشنهاد قیمت شما با موفقیت ثبت شد و به اطلاع سازنده رسید.', mainKeyboard);
         
         // Notify the creator privately
         const proposerName = counterOffer.proposer.username 
@@ -202,7 +203,7 @@ export const counterOfferWizard = new Scenes.WizardScene<MyCounterOfferContext>(
         
       } catch (error) {
         console.error('Error saving counter offer:', error);
-        await ctx.reply('❌ خطا در ذخیره پیشنهاد قیمت.', Markup.removeKeyboard());
+        await ctx.reply('❌ خطا در ذخیره پیشنهاد قیمت.', mainKeyboard);
       }
       
       return ctx.scene.leave();

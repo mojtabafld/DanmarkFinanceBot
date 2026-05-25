@@ -1,6 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
+import { verifyStartKeyboard } from '../utils/keyboards';
 
 interface VerifyState {
   fullName?: string;
@@ -30,7 +31,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       await ctx.reply(
         '⚠️ کاربر گرامی، جهت احراز هویت لازم است که اکانت تلگرام شما دارای **نام کاربری (Username)** باشد.\n\n' +
         'لطفاً ابتدا به تنظیمات تلگرام خود رفته، یک نام کاربری برای خود تعریف کنید و سپس مجدداً احراز هویت را شروع کنید.',
-        Markup.removeKeyboard()
+        verifyStartKeyboard
       );
       return ctx.scene.leave();
     }
@@ -49,7 +50,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
     if ('text' in ctx.message!) {
       const text = ctx.message.text.trim();
       if (text === 'انصراف' || text === '/cancel') {
-        await ctx.reply('❌ احراز هویت لغو شد. تا زمانی که احراز هویت نشوید امکان فعالیت ندارید.', Markup.removeKeyboard());
+        await ctx.reply('❌ احراز هویت لغو شد. تا زمانی که احراز هویت نشوید امکان فعالیت ندارید.', verifyStartKeyboard);
         return ctx.scene.leave();
       }
 
@@ -83,7 +84,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       await ctx.answerCbQuery();
 
       if (data === 'CANCEL_WIZARD') {
-        await ctx.reply('❌ احراز هویت لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ احراز هویت لغو شد.', verifyStartKeyboard);
         return ctx.scene.leave();
       }
 
@@ -113,7 +114,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
     if (ctx.wizard.state.needsCustomCountry && 'text' in ctx.message!) {
       const text = ctx.message.text.trim();
       if (text === 'انصراف' || text === '/cancel') {
-        await ctx.reply('❌ احراز هویت لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ احراز هویت لغو شد.', verifyStartKeyboard);
         return ctx.scene.leave();
       }
 
@@ -138,7 +139,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
     if ('text' in ctx.message!) {
       const text = ctx.message.text.trim();
       if (text === 'انصراف' || text === '/cancel') {
-        await ctx.reply('❌ احراز هویت لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ احراز هویت لغو شد.', verifyStartKeyboard);
         return ctx.scene.leave();
       }
 
@@ -171,7 +172,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
 
     if (message && 'text' in message) {
       if (message.text === 'انصراف' || message.text === '/cancel') {
-        await ctx.reply('❌ احراز هویت لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ احراز هویت لغو شد.', verifyStartKeyboard);
         return ctx.scene.leave();
       }
     }
@@ -191,7 +192,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
 
     if ('text' in message) {
       if (message.text === 'انصراف' || message.text === '/cancel') {
-        await ctx.reply('❌ احراز هویت لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ احراز هویت لغو شد.', verifyStartKeyboard);
         return ctx.scene.leave();
       }
       await ctx.reply('⚠️ لطفا تصویر مدرک خود را بفرستید (عکس بفرستید، نه متن):');
@@ -239,7 +240,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       await ctx.answerCbQuery();
 
       if (data === 'CANCEL_WIZARD') {
-        await ctx.reply('❌ احراز هویت لغو شد.', Markup.removeKeyboard());
+        await ctx.reply('❌ احراز هویت لغو شد.', verifyStartKeyboard);
         return ctx.scene.leave();
       }
 
@@ -307,12 +308,12 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
           await ctx.reply(
             '✅ مدارک شما با موفقیت برای مدیریت ارسال شد.\n' +
             '⏳ درخواست شما پس از بررسی توسط ادمین پاسخ داده خواهد شد و نتیجه از همین‌جا اطلاع‌رسانی می‌شود.',
-            Markup.removeKeyboard()
+            verifyStartKeyboard
           );
 
         } catch (error) {
           console.error('Error in verification confirmation:', error);
-          await ctx.reply('❌ در ارسال مدارک خطایی رخ داد. لطفا دوباره تلاش کنید.', Markup.removeKeyboard());
+          await ctx.reply('❌ در ارسال مدارک خطایی رخ داد. لطفا دوباره تلاش کنید.', verifyStartKeyboard);
         }
 
         return ctx.scene.leave();
