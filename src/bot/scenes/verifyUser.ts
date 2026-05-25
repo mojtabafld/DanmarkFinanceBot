@@ -21,9 +21,20 @@ export const VERIFY_USER_SCENE_ID = 'VERIFY_USER_SCENE';
 export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
   VERIFY_USER_SCENE_ID,
   
-  // Step 1: Start & Ask for Full Name
+  // Step 1: Start & Ask for Full Name (Requires Username)
   async (ctx) => {
     ctx.wizard.state = {};
+    
+    // Check if user has a username
+    if (!ctx.from || !ctx.from.username) {
+      await ctx.reply(
+        '⚠️ کاربر گرامی، جهت احراز هویت لازم است که اکانت تلگرام شما دارای **نام کاربری (Username)** باشد.\n\n' +
+        'لطفاً ابتدا به تنظیمات تلگرام خود رفته، یک نام کاربری برای خود تعریف کنید و سپس مجدداً احراز هویت را شروع کنید.',
+        Markup.removeKeyboard()
+      );
+      return ctx.scene.leave();
+    }
+
     await ctx.reply(
       '🌟 به بخش احراز هویت خوش آمدید.\n' +
       'لطفاً جهت استفاده از امکانات ربات و عضویت در گروه، اطلاعات خود را به دقت وارد کنید.\n\n' +
@@ -53,8 +64,8 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
         '🌍 کشور محل اقامت خود را انتخاب کنید:',
         Markup.inlineKeyboard([
           [
-            Markup.button.callback('🇩🇰 دانمارک', 'CURR_COUNTRY_DK'),
-            Markup.button.callback('🇮🇷 ایران', 'CURR_COUNTRY_IR')
+            Markup.button.callback('🇮🇷 ایران', 'CURR_COUNTRY_IR'),
+            Markup.button.callback('🇩🇰 دانمارک', 'CURR_COUNTRY_DK')
           ],
           [Markup.button.callback('🌍 سایر کشورها', 'CURR_COUNTRY_OTHER')],
           [Markup.button.callback('❌ انصراف', 'CANCEL_WIZARD')]
@@ -205,14 +216,15 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       `📋 **پیش‌نویس اطلاعات احراز هویت شما:**\n\n` +
       `🔹 **نام و نام خانوادگی:** ${ctx.wizard.state.fullName}\n` +
       `🔹 **کشور محل اقامت:** ${ctx.wizard.state.country}\n` +
-      `🔹 **شماره تماس:** ${ctx.wizard.state.phoneNumber}\n\n` +
+      `🔹 **شماره تماس:** ${ctx.wizard.state.phoneNumber}\n` +
+      `🔹 **نام کاربری تلگرام:** @${ctx.from?.username}\n\n` +
       `❓ آیا صحت این اطلاعات را تایید می‌کنید؟ در صورت تایید مدارک برای مدیریت ارسال خواهد شد.`;
 
     await ctx.replyWithMarkdown(
       summaryText,
       Markup.inlineKeyboard([
         [
-          Markup.button.callback('✅ تایید و ارسال برای مدیریت', 'CONFIRM_VERIFICATION'),
+          Markup.button.callback('تایید و ارسال', 'CONFIRM_VERIFICATION'),
           Markup.button.callback('❌ انصراف', 'CANCEL_WIZARD')
         ]
       ])
