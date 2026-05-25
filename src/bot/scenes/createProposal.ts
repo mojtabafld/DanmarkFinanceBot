@@ -294,7 +294,8 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
             {
               parse_mode: 'HTML',
               ...Markup.inlineKeyboard([
-                [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)]
+                [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)],
+                [Markup.button.callback('⚙️ مدیریت پیشنهاد (ادمین)', `ADMIN_PROP_MANAGE_${proposal.id}`)]
               ])
             }
           );

@@ -781,6 +781,113 @@ bot.on('callback_query', async (ctx) => {
       }
       return;
     }
+
+    // 12. Admin manages proposal from group message click
+    if (data.startsWith('ADMIN_PROP_MANAGE_')) {
+      const propId = parseInt(data.replace('ADMIN_PROP_MANAGE_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(propId)) return;
+
+      try {
+        const prop = await prisma.proposal.findUnique({
+          where: { id: propId },
+          include: { creator: true }
+        });
+
+        if (!prop) {
+          await ctx.reply('❌ پیشنهاد مورد نظر یافت نشد.');
+          return;
+        }
+
+        const u = prop.creator;
+        
+        const proposalsCount = await prisma.proposal.count({
+          where: { creatorId: u.id }
+        });
+        const activeProposalsCount = await prisma.proposal.count({
+          where: { creatorId: u.id, status: 'PENDING' }
+        });
+
+        const detailsText =
+          `⚙️ <b>مدیریت کاربر از روی پیشنهاد گروه:</b>\n\n` +
+          `👤 <b>مشخصات کاربر:</b>\n` +
+          `🔹 <b>نام واقعی:</b> <code>${u.fullName || 'ثبت نشده'}</code>\n` +
+          `🔹 <b>نام کاربری:</b> @${u.username || 'ندارد'}\n` +
+          `🔹 <b>شماره تماس:</b> <code>${u.phoneNumber || 'ثبت نشده'}</code>\n` +
+          `🔹 <b>کشور محل اقامت:</b> <code>${u.country || 'ثبت نشده'}</code>\n` +
+          `🔹 <b>وضعیت کنونی:</b> <code>${u.verificationStatus}</code>\n` +
+          `🔹 <b>حد مجاز روزانه:</b> <code>${u.dailyProposalLimit}</code> پیشنهاد\n` +
+          `🔹 <b>تعداد پیشنهادها:</b> <code>${proposalsCount}</code> (فعال: <code>${activeProposalsCount}</code>)\n` +
+          `🔹 <b>شناسه تلگرام:</b> <code>${u.telegramId}</code>` +
+          (u.rejectReason ? `\n💬 <b>علت رد/لغو:</b> <code>${u.rejectReason}</code>` : '');
+
+        const buttons = [];
+        
+        // Show Approve/Reject/Revoke buttons based on current verification status
+        if (u.verificationStatus === 'PENDING') {
+          buttons.push([
+            Markup.button.callback('✅ تایید درخواست', `APPROVE_USER_${u.id}`),
+            Markup.button.callback('❌ رد درخواست', `REJECT_USER_${u.id}`)
+          ]);
+        } else if (u.verificationStatus === 'APPROVED') {
+          buttons.push([
+            Markup.button.callback('🚫 لغو احراز هویت و اخراج', `ADMIN_USER_REVOKE_${u.id}`)
+          ]);
+        } else if (u.verificationStatus === 'REJECTED') {
+          buttons.push([
+            Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${u.id}`)
+          ]);
+        }
+
+        // Edit buttons row 1
+        buttons.push([
+          Markup.button.callback('✏️ نام واقعی', `ADMIN_EDIT_name_${u.id}`),
+          Markup.button.callback('✏️ شماره تماس', `ADMIN_EDIT_phone_${u.id}`)
+        ]);
+        
+        // Edit buttons row 2
+        buttons.push([
+          Markup.button.callback('✏️ کشور اقامت', `ADMIN_EDIT_country_${u.id}`),
+          Markup.button.callback('✏️ حد مجاز روزانه', `ADMIN_EDIT_limit_${u.id}`)
+        ]);
+
+        // Status & Delete row
+        buttons.push([
+          Markup.button.callback('✏️ تغییر وضعیت', `ADMIN_EDIT_status_${u.id}`),
+          Markup.button.callback('🗑 حذف کامل از ربات', `ADMIN_USER_DELETE_${u.id}`)
+        ]);
+        
+        buttons.push([Markup.button.callback('🔙 بازگشت به منوی اصلی', 'ADMIN_MAIN_MENU')]);
+
+        // Send this management page directly to the admin's private chat
+        if (u.documentFileId) {
+          await ctx.telegram.sendPhoto(config.ADMIN_CHAT_ID, u.documentFileId, {
+            caption: detailsText,
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons)
+          });
+        } else {
+          await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, detailsText, {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard(buttons)
+          });
+        }
+
+        // Send confirmation alert in group (visible only to the admin who clicked it)
+        await ctx.answerCbQuery('⚙️ مشخصات کاربر ثبت‌کننده به چت خصوصی شما ارسال شد.', { show_alert: false });
+
+      } catch (error) {
+        console.error('Error in ADMIN_PROP_MANAGE_:', error);
+        await ctx.answerCbQuery('❌ خطا در بررسی مشخصات.', { show_alert: true });
+      }
+      return;
+    }
+  }
+
+  // Handle non-admin clicks on ADMIN_PROP_MANAGE_
+  if (data.startsWith('ADMIN_PROP_MANAGE_') && !isAdmin) {
+    await ctx.answerCbQuery('⚠️ این دکمه مخصوص مدیریت ربات است.', { show_alert: true });
+    return;
   }
 
   // Handle My Proposal Cancellation
