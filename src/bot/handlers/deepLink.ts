@@ -1,6 +1,7 @@
 import { Context, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
+import { updateGroupProposalMessage } from '../utils/groupMessage';
 
 /**
  * Handles deep links coming from group inline buttons.
@@ -77,10 +78,9 @@ export async function handleDeepLink(ctx: Context, payload: string) {
     await ctx.replyWithMarkdown(
       detailText,
       Markup.inlineKeyboard([
-        [
-          Markup.button.callback('✅ بله، معامله را قبول می‌کنم', `ACCEPT_DEAL_${proposal.id}`),
-          Markup.button.callback('❌ انصراف', 'CANCEL_DEAL')
-        ]
+        [Markup.button.callback('🤝 قبول با قیمت اصلی', `ACCEPT_DEAL_${proposal.id}`)],
+        [Markup.button.callback('✍️ ثبت قیمت پیشنهادی جدید', `COUNTER_OFFER_PROP_${proposal.id}`)],
+        [Markup.button.callback('❌ انصراف', 'CANCEL_DEAL')]
       ])
     );
 
@@ -224,21 +224,7 @@ export async function handleDealCallbacks(ctx: Context) {
 
       // 5. Update the Group message to reflect status
       if (proposal.groupMessageId) {
-        const updatedGroupText =
-          `<b>🤝 #معامله_بسته_شد</b>\n\n` +
-          `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
-          `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
-          `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
-          `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n\n` +
-          `✅ این پیشنهاد پذیرفته شد و جهت انجام مراحل بعدی به ادمین ارجاع گردید.`;
-
-        await ctx.telegram.editMessageText(
-          config.GROUP_CHAT_ID,
-          proposal.groupMessageId,
-          undefined,
-          updatedGroupText,
-          { parse_mode: 'HTML' }
-        ).catch(err => console.error('Failed to update group message:', err));
+        await updateGroupProposalMessage(ctx.telegram, proposal.id);
       }
 
     } catch (error: any) {

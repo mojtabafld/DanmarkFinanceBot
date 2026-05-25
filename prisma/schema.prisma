@@ -24,6 +24,7 @@ model User {
   updatedAt          DateTime   @updatedAt
   proposals          Proposal[] @relation("UserProposals")
   deals              Deal[]     @relation("UserDeals")
+  counterOffers      CounterOffer[] @relation("UserCounterOffers")
 }
 
 model Proposal {
@@ -40,6 +41,7 @@ model Proposal {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   deals          Deal[]
+  counterOffers  CounterOffer[]
 }
 
 model Deal {
@@ -50,4 +52,16 @@ model Deal {
   acceptor    User     @relation("UserDeals", fields: [acceptorId], references: [id], onDelete: Cascade)
   status      String   // "PENDING", "COMPLETED", "REJECTED"
   createdAt   DateTime @default(now())
+}
+
+model CounterOffer {
+  id         Int      @id @default(autoincrement())
+  proposalId Int
+  proposal   Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposerId Int
+  proposer   User     @relation("UserCounterOffers", fields: [proposerId], references: [id], onDelete: Cascade)
+  price      Float
+  status     String   // "PENDING", "ACCEPTED", "REJECTED"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

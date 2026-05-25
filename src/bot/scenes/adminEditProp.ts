@@ -1,6 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
+import { updateGroupProposalMessage } from '../utils/groupMessage';
 
 export const ADMIN_EDIT_PROP_SCENE_ID = 'ADMIN_EDIT_PROP_SCENE';
 
@@ -96,35 +97,7 @@ export const adminEditPropWizard = new Scenes.WizardScene<MyEditPropContext>(
         
         // Update the message in the group to show updated details
         if (prop.groupMessageId) {
-          const typeHeader = prop.type === 'BUY' ? '🟢 #خرید_ارز' : '🔴 #فروش_ارز';
-          const userMention = prop.creator.username 
-            ? `@${prop.creator.username}` 
-            : `<a href="tg://user?id=${prop.creator.telegramId}">${prop.creator.firstName}</a>`;
-
-          const groupMsgText =
-            `📢 <b>پیشنهاد جدید معاملاتی</b> (ویرایش شده توسط مدیریت)\n\n` +
-            `<b>${typeHeader}</b>\n\n` +
-            `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
-            `🔹 <b>مقدار:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
-            `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
-            `🔹 <b>مبلغ کل:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
-            `👤 <b>توسط:</b> ${userMention}\n\n` +
-            `ℹ️ برای ارسال پاسخ، قبول پیشنهاد یا گفتگو با ثبت‌کننده، روی دکمه زیر کلیک کنید:`;
-
-          const deepLinkUrl = `https://t.me/${config.BOT_USERNAME}?start=deal_${prop.id}`;
-
-          await ctx.telegram.editMessageText(
-            config.GROUP_CHAT_ID,
-            prop.groupMessageId,
-            undefined,
-            groupMsgText,
-            {
-              parse_mode: 'HTML',
-              ...Markup.inlineKeyboard([
-                [Markup.button.url('🤝 قبول پیشنهاد / ارسال پاسخ', deepLinkUrl)]
-              ])
-            }
-          ).catch(err => console.error('Failed to update group message on admin edit:', err));
+          await updateGroupProposalMessage(ctx.telegram, prop.id);
         }
         
         // Show updated view button
