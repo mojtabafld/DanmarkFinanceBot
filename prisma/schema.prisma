@@ -51,7 +51,7 @@ model Deal {
   acceptorId  Int
   acceptor    User     @relation("UserDeals", fields: [acceptorId], references: [id], onDelete: Cascade)
   status      String   // "PENDING", "COMPLETED", "REJECTED"
-  amount      Float
+  amount      Float    @default(0)
   createdAt   DateTime @default(now())
 }
 
@@ -62,7 +62,7 @@ model CounterOffer {
   proposerId Int
   proposer   User     @relation("UserCounterOffers", fields: [proposerId], references: [id], onDelete: Cascade)
   price      Float
-  amount     Float
+  amount     Float    @default(0)
   status     String   // "PENDING", "ACCEPTED", "REJECTED"
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
