@@ -2,6 +2,23 @@ import { Telegram, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 
+export function formatToShamsi(date: Date): string {
+  try {
+    const formatter = new Intl.DateTimeFormat('fa-IR', {
+      calendar: 'persian',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    return formatter.format(date);
+  } catch (e) {
+    return date.toISOString();
+  }
+}
+
 export async function updateGroupProposalMessage(telegram: Telegram, proposalId: number) {
   try {
     const prop = await prisma.proposal.findUnique({
@@ -35,14 +52,36 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
       ? `@${prop.creator.username}` 
       : `<a href="tg://user?id=${prop.creator.telegramId}">${prop.creator.firstName}</a>`;
 
+    // Fetch details of deals associated with this ad
+    const deals = await prisma.deal.findMany({
+      where: { proposalId: prop.id },
+      include: { acceptor: true }
+    });
+    const inProgressAmount = deals.filter(d => d.status === 'PENDING_ADMIN').reduce((sum, d) => sum + d.amount, 0);
+    const tradedAmount = deals.filter(d => d.status === 'COMPLETED').reduce((sum, d) => sum + d.amount, 0);
+    const totalAmount = prop.originalAmount ?? (prop.amount + inProgressAmount + tradedAmount);
+
     let msgText =
       `${header}\n\n` +
       `<b>${typeHeader}</b>\n\n` +
+      `🔹 <b>کد حواله:</b> <code>${prop.code ?? '---'}</code>\n` +
       `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
-      `🔹 <b>مقدار:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
+      `🔹 <b>نوع تسویه:</b> <code>${prop.paymentMethod ?? '---'}</code>\n` +
+      `🔹 <b>مقدار کل:</b> <code>${totalAmount.toLocaleString('fa-IR')}</code>\n`;
+
+    if (inProgressAmount > 0) {
+      msgText += `🔸 <b>در حال مبادله:</b> <code>${inProgressAmount.toLocaleString('fa-IR')}</code>\n`;
+    }
+    if (tradedAmount > 0) {
+      msgText += `✅ <b>مبادله شده:</b> <code>${tradedAmount.toLocaleString('fa-IR')}</code>\n`;
+    }
+
+    msgText +=
+      `🔹 <b>مقدار باقیمانده:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
       `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
-      `🔹 <b>مبلغ کل:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
-      `👤 <b>توسط:</b> ${userMention}\n`;
+      `🔹 <b>مبلغ کل باقیمانده:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
+      `👤 <b>توسط:</b> ${userMention}\n` +
+      `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(prop.createdAt)}</code>\n`;
 
     if (prop.counterOffers.length > 0) {
       msgText += `\n💬 <b>پیشنهادهای قیمت مطرح شده:</b>\n`;
@@ -62,6 +101,31 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
           : `<a href="tg://user?id=${offer.proposer.telegramId}">${offer.proposer.firstName}</a>`;
           
         msgText += `${statusIcon} مقدار <code>${offer.amount.toLocaleString('fa-IR')}</code> با قیمت <code>${offer.price.toLocaleString('fa-IR')}</code> تومان توسط ${proposerMention} (${statusText})\n`;
+      }
+    }
+
+    // Display completed trades history under completed ad
+    const completedDeals = deals.filter(d => d.status === 'COMPLETED');
+    if (completedDeals.length > 0) {
+      msgText += `\n🤝 <b>جزئیات معاملات انجام شده:</b>\n`;
+      for (let i = 0; i < completedDeals.length; i++) {
+        const deal = completedDeals[i];
+        
+        // Find if this deal was from a counter offer to display the agreed price
+        const acceptedOffer = await prisma.counterOffer.findFirst({
+          where: {
+            proposalId: prop.id,
+            proposerId: deal.acceptorId,
+            status: 'ACCEPTED'
+          }
+        });
+        const tradePrice = acceptedOffer ? acceptedOffer.price : prop.price;
+        
+        const acceptorMention = deal.acceptor.username
+          ? `@${deal.acceptor.username}`
+          : `<a href="tg://user?id=${deal.acceptor.telegramId}">${deal.acceptor.firstName}</a>`;
+          
+        msgText += `🔹 <b>معامله ${i + 1}:</b> مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> با نرخ <code>${tradePrice.toLocaleString('fa-IR')}</code> تومان توسط ${acceptorMention}\n`;
       }
     }
 

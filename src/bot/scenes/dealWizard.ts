@@ -397,19 +397,31 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
           return ctx.scene.leave();
         }
         
+        // Enforce that proposed price does not exceed the ad's price
+        if (price > proposal.price) {
+          await ctx.reply(`⚠️ قیمت پیشنهادی شما (${price.toLocaleString('fa-IR')} تومان) نباید بیشتر از قیمت ثبت شده در آگهی اصلی (${proposal.price.toLocaleString('fa-IR')} تومان) باشد. لطفا مجددا وارد کنید:`);
+          return;
+        }
+
+        // Find the first offer registered AFTER the last edit date/time
         const firstOffer = await prisma.counterOffer.findFirst({
-          where: { proposalId: proposalId },
+          where: {
+            proposalId: proposalId,
+            createdAt: {
+              gt: proposal.editedAt ?? new Date(0)
+            }
+          },
           orderBy: { createdAt: 'asc' }
         });
         
-        // Enforce pricing constraints (reversed to obey bidding progression)
+        // Enforce pricing constraints based on the first offer after edit
         if (firstOffer) {
           if (proposal.type === 'BUY' && price > firstOffer.price) {
-            await ctx.reply(`⚠️ قیمت پیشنهادی شما برای فروش ارز نباید بیشتر از اولین پیشنهاد (${firstOffer.price.toLocaleString('fa-IR')} تومان) باشد. لطفا مجددا وارد کنید:`);
+            await ctx.reply(`⚠️ قیمت پیشنهادی شما برای فروش ارز نباید بیشتر از اولین پیشنهاد پس از ویرایش (${firstOffer.price.toLocaleString('fa-IR')} تومان) باشد. لطفا مجددا وارد کنید:`);
             return;
           }
           if (proposal.type === 'SELL' && price < firstOffer.price) {
-            await ctx.reply(`⚠️ قیمت پیشنهادی شما برای خرید ارز نباید کمتر از اولین پیشنهاد (${firstOffer.price.toLocaleString('fa-IR')} تومان) باشد. لطفا مجددا وارد کنید:`);
+            await ctx.reply(`⚠️ قیمت پیشنهادی شما برای خرید ارز نباید کمتر از اولین پیشنهاد پس از ویرایش (${firstOffer.price.toLocaleString('fa-IR')} تومان) باشد. لطفا مجددا وارد کنید:`);
             return;
           }
         }

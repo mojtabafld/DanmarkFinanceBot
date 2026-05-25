@@ -8,8 +8,9 @@ import { adminEditUserWizard, adminRejectUserWizard, ADMIN_EDIT_USER_SCENE_ID, A
 import { adminEditPropWizard, ADMIN_EDIT_PROP_SCENE_ID } from './scenes/adminEditProp';
 import { handleDeepLink } from './handlers/deepLink';
 import { acceptDealWizard, ACCEPT_DEAL_SCENE_ID } from './scenes/dealWizard';
-import { updateGroupProposalMessage } from './utils/groupMessage';
+import { updateGroupProposalMessage, formatToShamsi } from './utils/groupMessage';
 import { mainKeyboard, verifyStartKeyboard } from './utils/keyboards';
+import { editProposalWizard, EDIT_PROPOSAL_SCENE_ID } from './scenes/editProposal';
 
 // Set up the custom context type for the bot
 export interface BotContext extends MyWizardContext {}
@@ -24,7 +25,8 @@ const stage = new Scenes.Stage<BotContext>([
   adminEditUserWizard,
   adminRejectUserWizard,
   adminEditPropWizard,
-  acceptDealWizard
+  acceptDealWizard,
+  editProposalWizard
 ]);
 bot.use(session());
 bot.use(stage.middleware());
@@ -219,64 +221,137 @@ bot.hears('🔐 شروع احراز هویت', async (ctx) => {
 });
 
 // Text command handlers (Protected with checkVerified middleware)
-bot.hears('📝 ثبت پیشنهاد جدید', checkVerified, async (ctx) => {
-  await ctx.scene.enter(CREATE_PROPOSAL_SCENE_ID);
-});
-
-bot.hears('📋 پیشنهادهای فعال من', checkVerified, async (ctx) => {
+bot.hears('ثبت | ویرایش درخواست', checkVerified, async (ctx) => {
   const from = ctx.from;
   if (!from) return;
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { telegramId: from.id.toString() },
-      include: {
-        proposals: {
-          where: { status: 'PENDING' },
-          orderBy: { createdAt: 'desc' }
-        }
-      }
+    const dbUser = await prisma.user.findUnique({
+      where: { telegramId: from.id.toString() }
+    });
+    if (!dbUser) return;
+
+    const activeProposals = await prisma.proposal.findMany({
+      where: {
+        creatorId: dbUser.id,
+        status: 'PENDING'
+      },
+      orderBy: { createdAt: 'desc' }
     });
 
-    const activeProposals = user?.proposals || [];
-
     if (activeProposals.length === 0) {
-      await ctx.reply('⚠️ شما هیچ پیشنهاد فعالی در گروه ندارید.');
+      await ctx.scene.enter(CREATE_PROPOSAL_SCENE_ID);
       return;
     }
 
-    await ctx.reply(`📋 لیست پیشنهادهای فعال شما (${activeProposals.length} مورد):`);
-
-    for (const prop of activeProposals) {
-      const typeText = prop.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
-      const msg = 
-        `🔸 **ارز:** ${prop.currency}\n` +
-        `🔸 **نوع:** ${typeText}\n` +
-        `🔸 **مقدار:** ${prop.amount.toLocaleString('fa-IR')}\n` +
-        `🔸 **قیمت واحد:** ${prop.price.toLocaleString('fa-IR')} تومان\n` +
-        `🔸 **مبلغ کل:** ${(prop.amount * prop.price).toLocaleString('fa-IR')} تومان`;
-
-      await ctx.reply(msg, 
-        Markup.inlineKeyboard([
-          [Markup.button.callback('❌ لغو این پیشنهاد', `CANCEL_MY_PROP_${prop.id}`)]
+    await ctx.reply(
+      `📋 <b>مدیریت درخواست‌های شما</b>\n\n` +
+      `شما دارای <code>${activeProposals.length}</code> درخواست فعال هستید.\n` +
+      `لطفاً جهت ویرایش هر یک، آن را انتخاب کنید یا درخواست جدیدی ثبت کنید:`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          ...activeProposals.map(prop => [
+            Markup.button.callback(
+              `✏️ ویرایش حواله #${prop.code ?? prop.id} (${prop.type === 'BUY' ? 'خرید' : 'فروش'} ${prop.amount.toLocaleString('fa-IR')} ${prop.currency})`,
+              `USER_EDIT_PROP_${prop.id}`
+            )
+          ]),
+          [Markup.button.callback('➕ ثبت درخواست جدید', 'USER_CREATE_NEW_PROP')]
         ])
-      );
-    }
-  } catch (error) {
-    console.error('Error fetching active proposals:', error);
-    await ctx.reply('❌ خطا در بارگذاری پیشنهادها.');
+      }
+    );
+
+  } catch (err) {
+    console.error('Error in request management:', err);
+    await ctx.reply('❌ خطایی رخ داد.');
   }
 });
 
-bot.hears('❓ راهنما', checkVerified, async (ctx) => {
-  await ctx.reply(
-    `📖 **راهنمای ربات:**\n\n` +
-    `۱. برای ثبت پیشنهاد جدید دکمه **📝 ثبت پیشنهاد جدید** را بزنید و مراحل را طی کنید.\n` +
-    `۲. پیشنهاد شما به گروه ارسال خواهد شد و کاربران دیگر می‌توانند آن را قبول کنند.\n` +
-    `۳. برای دیدن پیشنهادهایی که ثبت کرده‌اید و لغو آنها، از دکمه **📋 پیشنهادهای فعال من** استفاده کنید.\n` +
-    `۴. در صورت پذیرفته شدن پیشنهاد شما توسط کاربری در گروه، جزئیات معامله جهت انجام مراحل بعدی به ادمین ارسال شده و آیدی ادمین برای شما فرستاده می‌شود.`,
-    mainKeyboard
-  );
+bot.hears('⚙️ تنظیمات کاربری', checkVerified, async (ctx) => {
+  const from = ctx.from;
+  if (!from) return;
+
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { telegramId: from.id.toString() }
+    });
+
+    if (!dbUser) {
+      await ctx.reply('❌ اطلاعات کاربری شما یافت نشد.');
+      return;
+    }
+
+    const verificationStatusText = 
+      dbUser.verificationStatus === 'APPROVED' ? '✅ تایید شده' :
+      dbUser.verificationStatus === 'PENDING' ? '⏳ در انتظار تایید' :
+      dbUser.verificationStatus === 'REJECTED' ? '❌ رد شده' : 'نامشخص';
+
+    const infoText = 
+      `👤 <b>مشخصات کاربری شما:</b>\n\n` +
+      `🔹 <b>نام و نام خانوادگی:</b> ${dbUser.firstName} ${dbUser.lastName || ''}\n` +
+      `🔹 <b>نام کاربری تلگرام:</b> ${dbUser.username ? `@${dbUser.username}` : 'ندارد'}\n` +
+      `🔹 <b>تلفن همراه:</b> ${dbUser.phoneNumber ?? 'ثبت نشده'}\n` +
+      `🔹 <b>کشور محل سکونت:</b> ${dbUser.country ?? 'ثبت نشده'}\n` +
+      `🔹 <b>وضعیت احراز هویت:</b> ${verificationStatusText}\n` +
+      `🔹 <b>محدودیت پیشنهاد روزانه:</b> ${dbUser.dailyProposalLimit} عدد\n` +
+      `🔹 <b>تاریخ ثبت‌نام:</b> <code>${formatToShamsi(dbUser.createdAt)}</code>`;
+
+    await ctx.reply(infoText, { parse_mode: 'HTML', ...mainKeyboard });
+  } catch (err) {
+    console.error('Error fetching user info:', err);
+    await ctx.reply('❌ خطا در بارگذاری اطلاعات کاربری.');
+  }
+});
+
+bot.hears('📊 لیست مبادلات فعال', checkVerified, async (ctx) => {
+  try {
+    const activeProposals = await prisma.proposal.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (activeProposals.length === 0) {
+      await ctx.reply('⚠️ در حال حاضر هیچ حواله فعال و آماده مبادله‌ای در سیستم وجود ندارد.');
+      return;
+    }
+
+    let text = `📊 <b>لیست مبادلات فعال:</b>\n\n`;
+    activeProposals.forEach(prop => {
+      const typeText = prop.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
+      const cleanChatId = config.GROUP_CHAT_ID.toString().startsWith('-100')
+        ? config.GROUP_CHAT_ID.toString().substring(4)
+        : config.GROUP_CHAT_ID.toString();
+        
+      const link = prop.groupMessageId 
+        ? `https://t.me/c/${cleanChatId}/${prop.groupMessageId}`
+        : `https://t.me/${config.BOT_USERNAME}`;
+
+      text += `🔹 <a href="${link}">حواله #${prop.code ?? prop.id}</a> | <b>${typeText}</b> | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${prop.currency} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n`;
+    });
+
+    await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+  } catch (err) {
+    console.error('Error fetching active trades list:', err);
+    await ctx.reply('❌ خطا در دریافت لیست مبادلات فعال.');
+  }
+});
+
+bot.hears('💵 نرخ لحظه‌ای ارز', checkVerified, async (ctx) => {
+  await ctx.reply('💵 این بخش به زودی فعال خواهد شد و نرخ‌های لحظه‌ای ارز را نمایش خواهد داد.', mainKeyboard);
+});
+
+bot.hears('📜 شرایط تبادل ارز', checkVerified, async (ctx) => {
+  const termsText = 
+    `📜 **شرایط و ضوابط تبادل ارز (فرآیند امن Escrow):**\n\n` +
+    `جهت تضمین امنیت کامل مالی کاربران و جلوگیری از هرگونه سوءاستفاده یا کلاهبرداری، تمامی معاملات در این بستر طبق فرآیند نظارتی زیر انجام می‌شوند:\n\n` +
+    `۱. **ثبت و پذیرش حواله:** پس از ثبت آگهی و موافقت طرفین با قیمت و مقدار، معامله ثبت شده و در انتظار تایید نهایی مدیریت قرار می‌گیرد.\n\n` +
+    `۲. **ضمانت ریال (Escrow):** جهت شروع انتقال، شخص خریدار موظف است مبلغ ریالی معامله را ابتدا به حساب بانکی امن ادمین واسط ربات در ایران واریز کند.\n\n` +
+    `۳. **بررسی و تایید واریز:** پس از تایید دریافت وجه ریالی توسط مدیریت، به شخص فروشنده اطلاع داده می‌شود تا با خیال راحت وجه ارزی را به حساب رولوت، بانکی یا به صورت نقدی به خریدار انتقال دهد.\n\n` +
+    `۴. **نهایی‌سازی و تسویه:** پس از تایید دریافت ارز توسط خریدار، ریال دریافتی فوراً به حساب فروشنده واریز شده و انتقال کامل می‌گردد.\n\n` +
+    `⚠️ **نکته بسیار مهم:** به هیچ عنوان وجهی را مستقیماً به حساب طرف مقابل واریز نکنید. ربات و مدیریت هیچ مسئولیتی در قبال انتقال‌های خارج از شبکه نظارتی ادمین بر عهده نخواهند داشت.`;
+
+  await ctx.reply(termsText, mainKeyboard);
 });
 
 // Catch-all text handler for verified users to restore keyboard
@@ -291,6 +366,21 @@ bot.on('callback_query', async (ctx) => {
 
   const from = ctx.from;
   if (!from) return;
+
+  // USER CALLBACKS (For active proposal editing)
+  if (data === 'USER_CREATE_NEW_PROP') {
+    await ctx.answerCbQuery();
+    await ctx.scene.enter(CREATE_PROPOSAL_SCENE_ID);
+    return;
+  }
+
+  if (data.startsWith('USER_EDIT_PROP_')) {
+    const proposalId = parseInt(data.replace('USER_EDIT_PROP_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(proposalId)) return;
+    await ctx.scene.enter(EDIT_PROPOSAL_SCENE_ID, { proposalId });
+    return;
+  }
 
   const isAdmin = from.id.toString() === config.ADMIN_CHAT_ID.toString();
 

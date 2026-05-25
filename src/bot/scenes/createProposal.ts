@@ -2,11 +2,13 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
+import { updateGroupProposalMessage, formatToShamsi } from '../utils/groupMessage';
 
 // Define the state interface
 interface ProposalState {
   type?: 'BUY' | 'SELL';
   currency?: string;
+  paymentMethod?: string;
   amount?: number;
   price?: number;
 }
@@ -19,6 +21,29 @@ export interface MyWizardContext extends Scenes.WizardContext {
 }
 
 export const CREATE_PROPOSAL_SCENE_ID = 'CREATE_PROPOSAL_SCENE';
+
+async function getNextAvailableCode(): Promise<string> {
+  try {
+    const activeProposals = await prisma.proposal.findMany({
+      where: {
+        status: { in: ['PENDING', 'LOCKED'] }
+      },
+      select: { code: true }
+    });
+    
+    const usedCodes = new Set(activeProposals.map(p => p.code).filter(Boolean));
+    
+    for (let i = 1; i <= 9999; i++) {
+      const codeStr = i.toString().padStart(4, '0');
+      if (!usedCodes.has(codeStr)) {
+        return codeStr;
+      }
+    }
+  } catch (err) {
+    console.error('Error allocating code:', err);
+  }
+  return '0001';
+}
 
 export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
   CREATE_PROPOSAL_SCENE_ID,
@@ -79,7 +104,6 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
 
   // Step 2: Handle Buy/Sell selection & Ask for Currency
   async (ctx) => {
-    // Check if it's a callback query
     if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
       const data = ctx.callbackQuery.data;
       if (data === 'CANCEL_WIZARD') {
@@ -112,11 +136,10 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
       return ctx.wizard.next();
     }
 
-    // If they typed something instead of clicking
     await ctx.reply('لطفاً یکی از دکمه‌های بالا را جهت تعیین نوع پیشنهاد انتخاب کنید.');
   },
 
-  // Step 3: Handle Currency selection & Ask for Amount
+  // Step 3: Handle Currency selection & Ask for Payment Method
   async (ctx) => {
     if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
       const data = ctx.callbackQuery.data;
@@ -137,6 +160,60 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
       }
 
       ctx.wizard.state.currency = currency;
+
+      // Ask for payment method based on ad type
+      const isSell = ctx.wizard.state.type === 'SELL';
+      const promptText = isSell 
+        ? 'روش دریافت مبلغ (تسویه) را انتخاب کنید:'
+        : 'روش پرداخت مبلغ (تسویه) را انتخاب کنید:';
+        
+      const cashText = isSell ? '💵 فروش نقدی (اسکناس)' : '💵 خرید نقدی (اسکناس)';
+      const revolutText = isSell ? '💳 فروش از طریق رولوت' : '💳 خرید از طریق رولوت';
+      const bankText = '🏦 واریز به حساب';
+
+      await ctx.reply(
+        promptText,
+        Markup.inlineKeyboard([
+          [Markup.button.callback(cashText, 'SELECT_PAY_CASH')],
+          [Markup.button.callback(revolutText, 'SELECT_PAY_REVOLUT')],
+          [Markup.button.callback(bankText, 'SELECT_PAY_BANK')],
+          [Markup.button.callback('❌ انصراف', 'CANCEL_WIZARD')]
+        ])
+      );
+      return ctx.wizard.next();
+    }
+
+    await ctx.reply('لطفاً یکی از گزینه‌های شیشه‌ای بالا را جهت تعیین ارز انتخاب کنید.');
+  },
+
+  // Step 4: Handle Payment Method & Ask for Amount
+  async (ctx) => {
+    if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
+      const data = ctx.callbackQuery.data;
+      await ctx.answerCbQuery();
+
+      if (data === 'CANCEL_WIZARD') {
+        await ctx.reply('❌ ثبت پیشنهاد لغو شد.');
+        return ctx.scene.leave();
+      }
+
+      let paymentMethod = '';
+      const isSell = ctx.wizard.state.type === 'SELL';
+
+      if (data === 'SELECT_PAY_CASH') {
+        paymentMethod = isSell ? 'فروش نقدی (اسکناس)' : 'خرید نقدی (اسکناس)';
+      } else if (data === 'SELECT_PAY_REVOLUT') {
+        paymentMethod = isSell ? 'فروش از طریق رولوت' : 'خرید از طریق رولوت';
+      } else if (data === 'SELECT_PAY_BANK') {
+        paymentMethod = 'واریز به حساب';
+      } else {
+        await ctx.reply('لطفاً یکی از گزینه‌های تسویه را انتخاب کنید.');
+        return;
+      }
+
+      ctx.wizard.state.paymentMethod = paymentMethod;
+      const currency = ctx.wizard.state.currency;
+
       await ctx.reply(
         `لطفاً مقدار ارز (${currency}) مورد نظر خود را به صورت عدد انگلیسی وارد کنید:`,
         Markup.keyboard([['انصراف']]).oneTime().resize()
@@ -144,13 +221,12 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
       return ctx.wizard.next();
     }
 
-    // If they typed something instead of clicking
-    await ctx.reply('لطفاً یکی از گزینه‌های شیشه‌ای بالا را جهت تعیین ارز انتخاب کنید.');
+    await ctx.reply('لطفاً یکی از گزینه‌های تسویه بالا را انتخاب کنید.');
   },
 
-  // Step 4: Handle Amount & Ask for Price
+  // Step 5: Handle Amount & Ask for Price
   async (ctx) => {
-    if ('text' in ctx.message!) {
+    if (ctx.message && 'text' in ctx.message) {
       const text = ctx.message.text.trim();
       if (text === 'انصراف' || text === '/cancel') {
         await ctx.reply('❌ ثبت پیشنهاد لغو شد.', mainKeyboard);
@@ -174,9 +250,9 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
     await ctx.reply('لطفاً مقدار ارز را به صورت عدد وارد کنید.');
   },
 
-  // Step 5: Handle Price & Show Confirmation Summary
+  // Step 6: Handle Price & Show Confirmation Summary
   async (ctx) => {
-    if ('text' in ctx.message!) {
+    if (ctx.message && 'text' in ctx.message) {
       const text = ctx.message.text.trim();
       if (text === 'انصراف' || text === '/cancel') {
         await ctx.reply('❌ ثبت پیشنهاد لغو شد.', mainKeyboard);
@@ -195,6 +271,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
       // Calculate totals
       const typeText = ctx.wizard.state.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
       const currency = ctx.wizard.state.currency;
+      const paymentMethod = ctx.wizard.state.paymentMethod;
       const amount = ctx.wizard.state.amount!;
       const total = amount * price;
 
@@ -202,6 +279,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
         `📋 *پیش‌نویس پیشنهاد شما:*\n\n` +
         `🔹 *نوع تراکنش:* ${typeText}\n` +
         `🔹 *نام ارز:* ${currency}\n` +
+        `🔹 *نوع تسویه:* ${paymentMethod}\n` +
         `🔹 *مقدار:* ${amount.toLocaleString('fa-IR')}\n` +
         `🔹 *قیمت واحد:* ${price.toLocaleString('fa-IR')} تومان\n` +
         `🔹 *مبلغ کل:* ${total.toLocaleString('fa-IR')} تومان\n\n` +
@@ -221,7 +299,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
     await ctx.reply('لطفاً قیمت پیشنهادی را به صورت عدد وارد کنید.');
   },
 
-  // Step 6: Handle Confirmation and DB insert
+  // Step 7: Handle Confirmation and DB insert
   async (ctx) => {
     if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
       const data = ctx.callbackQuery.data;
@@ -256,6 +334,9 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
             },
           });
 
+          // Allocate code
+          const code = await getNextAvailableCode();
+
           // 2. Create the proposal in database
           const proposal = await prisma.proposal.create({
             data: {
@@ -263,9 +344,12 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
               type: ctx.wizard.state.type!,
               currency: ctx.wizard.state.currency!,
               amount: ctx.wizard.state.amount!,
+              originalAmount: ctx.wizard.state.amount!,
+              paymentMethod: ctx.wizard.state.paymentMethod!,
               price: ctx.wizard.state.price!,
               priceCurrency: 'تومان',
               status: 'PENDING',
+              code: code
             },
           });
 
@@ -278,17 +362,20 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
           const groupMsgText =
             `📢 <b>پیشنهاد جدید معاملاتی</b>\n\n` +
             `<b>${typeHeader}</b>\n\n` +
+            `🔹 <b>کد حواله:</b> <code>${proposal.code}</code>\n` +
             `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
-            `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
+            `🔹 <b>نوع تسویه:</b> <code>${proposal.paymentMethod}</code>\n` +
+            `🔹 <b>مقدار کل:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
+            `🔹 <b>مقدار باقیمانده:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
             `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
             `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n` +
-            `👤 <b>توسط:</b> ${userMention}\n\n` +
+            `👤 <b>توسط:</b> ${userMention}\n` +
+            `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(proposal.createdAt)}</code>\n\n` +
             `ℹ️ برای ارسال پاسخ، قبول پیشنهاد یا گفتگو با ثبت‌کننده، روی دکمه زیر کلیک کنید:`;
 
-          // Deep link to bot: https://t.me/BotUsername?start=deal_PROPOSAL_ID
           const deepLinkUrl = `https://t.me/${config.BOT_USERNAME}?start=deal_${proposal.id}`;
 
-          // 4. Send to group (Only has user button)
+          // 4. Send to group
           const sentMessage = await ctx.telegram.sendMessage(
             config.GROUP_CHAT_ID,
             groupMsgText,
@@ -304,11 +391,14 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
           const adminMsgText =
             `🔔 <b>پیشنهاد جدید معاملاتی ثبت شد:</b>\n\n` +
             `<b>${typeHeader}</b>\n\n` +
+            `🔹 <b>کد حواله:</b> <code>${proposal.code}</code>\n` +
             `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
+            `🔹 <b>نوع تسویه:</b> <code>${proposal.paymentMethod}</code>\n` +
             `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
             `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
             `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n` +
-            `👤 <b>توسط:</b> ${userMention}\n\n` +
+            `👤 <b>توسط:</b> ${userMention}\n` +
+            `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(proposal.createdAt)}</code>\n\n` +
             `⚙️ <b>دکمه‌های مدیریت پیشنهاد:</b>`;
 
           await ctx.telegram.sendMessage(

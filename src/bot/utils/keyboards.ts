@@ -1,8 +1,9 @@
 import { Markup } from 'telegraf';
 
 export const mainKeyboard = Markup.keyboard([
-  ['📝 ثبت پیشنهاد جدید'],
-  ['📋 پیشنهادهای فعال من', '❓ راهنما']
+  ['ثبت | ویرایش درخواست', '⚙️ تنظیمات کاربری'],
+  ['📊 لیست مبادلات فعال', '💵 نرخ لحظه‌ای ارز'],
+  ['📜 شرایط تبادل ارز']
 ]).resize();
 
 export const verifyStartKeyboard = Markup.keyboard([
