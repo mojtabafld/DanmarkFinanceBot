@@ -58,7 +58,7 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
           ? `@${offer.proposer.username}`
           : `<a href="tg://user?id=${offer.proposer.telegramId}">${offer.proposer.firstName}</a>`;
           
-        msgText += `${statusIcon} <code>${offer.price.toLocaleString('fa-IR')}</code> تومان توسط ${proposerMention} (${statusText})\n`;
+        msgText += `${statusIcon} مقدار <code>${offer.amount.toLocaleString('fa-IR')}</code> با قیمت <code>${offer.price.toLocaleString('fa-IR')}</code> تومان توسط ${proposerMention} (${statusText})\n`;
       }
     }
 

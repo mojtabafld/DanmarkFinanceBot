@@ -6,8 +6,8 @@ import { verifyUserWizard, VERIFY_USER_SCENE_ID } from './scenes/verifyUser';
 import { adminSearchWizard, ADMIN_SEARCH_SCENE_ID } from './scenes/adminSearch';
 import { adminEditUserWizard, adminRejectUserWizard, ADMIN_EDIT_USER_SCENE_ID, ADMIN_REJECT_USER_SCENE_ID } from './scenes/adminEditUser';
 import { adminEditPropWizard, ADMIN_EDIT_PROP_SCENE_ID } from './scenes/adminEditProp';
-import { handleDeepLink, handleDealCallbacks } from './handlers/deepLink';
-import { counterOfferWizard, COUNTER_OFFER_SCENE_ID } from './scenes/counterOffer';
+import { handleDeepLink } from './handlers/deepLink';
+import { acceptDealWizard, ACCEPT_DEAL_SCENE_ID } from './scenes/dealWizard';
 import { updateGroupProposalMessage } from './utils/groupMessage';
 import { mainKeyboard, verifyStartKeyboard } from './utils/keyboards';
 
@@ -24,7 +24,7 @@ const stage = new Scenes.Stage<BotContext>([
   adminEditUserWizard,
   adminRejectUserWizard,
   adminEditPropWizard,
-  counterOfferWizard
+  acceptDealWizard
 ]);
 bot.use(session());
 bot.use(stage.middleware());
@@ -1320,7 +1320,7 @@ bot.on('callback_query', async (ctx) => {
     const proposalId = parseInt(data.replace('COUNTER_OFFER_PROP_', ''), 10);
     await ctx.answerCbQuery();
     if (isNaN(proposalId)) return;
-    await ctx.scene.enter(COUNTER_OFFER_SCENE_ID, { proposalId });
+    await ctx.scene.enter(ACCEPT_DEAL_SCENE_ID, { proposalId, mode: 'CUSTOM' });
     return;
   }
 
@@ -1355,6 +1355,11 @@ bot.on('callback_query', async (ctx) => {
         await ctx.reply('⚠️ این پیشنهاد قیمت یا آگهی اصلی دیگر فعال نیست.');
         return;
       }
+
+      if (offer.amount > offer.proposal.amount) {
+        await ctx.reply(`⚠️ مقدار درخواستی این پیشنهاد (${offer.amount.toLocaleString('fa-IR')}) بیشتر از مقدار باقیمانده آگهی (${offer.proposal.amount.toLocaleString('fa-IR')}) است.`);
+        return;
+      }
       
       // Run transaction to accept deal
       const result = await prisma.$transaction(async (tx) => {
@@ -1364,29 +1369,51 @@ bot.on('callback_query', async (ctx) => {
           data: { status: 'ACCEPTED' }
         });
         
-        // Reject other pending offers for this proposal
-        await tx.counterOffer.updateMany({
-          where: {
-            proposalId: offer.proposalId,
-            id: { not: offer.id },
-            status: 'PENDING'
-          },
-          data: { status: 'REJECTED' }
-        });
+        // Mark proposal status based on remaining amount
+        const remainingAmount = offer.proposal.amount - offer.amount;
+        let completedProposal;
         
-        // Mark proposal completed
-        const completedProposal = await tx.proposal.update({
-          where: { id: offer.proposalId },
-          data: { status: 'COMPLETED' },
-          include: { creator: true }
-        });
+        if (remainingAmount <= 0.0001) {
+          completedProposal = await tx.proposal.update({
+            where: { id: offer.proposalId },
+            data: { amount: 0, status: 'COMPLETED' },
+            include: { creator: true }
+          });
+          
+          // Reject other pending offers for this proposal since it's fully closed
+          await tx.counterOffer.updateMany({
+            where: {
+              proposalId: offer.proposalId,
+              id: { not: offer.id },
+              status: 'PENDING'
+            },
+            data: { status: 'REJECTED' }
+          });
+        } else {
+          completedProposal = await tx.proposal.update({
+            where: { id: offer.proposalId },
+            data: { amount: remainingAmount }, // stays PENDING
+            include: { creator: true }
+          });
+          
+          // Reject other pending offers whose amount is greater than the new remaining amount
+          await tx.counterOffer.updateMany({
+            where: {
+              proposalId: offer.proposalId,
+              amount: { gt: remainingAmount },
+              status: 'PENDING'
+            },
+            data: { status: 'REJECTED' }
+          });
+        }
         
         // Create a deal record
         const deal = await tx.deal.create({
           data: {
             proposalId: offer.proposalId,
             acceptorId: offer.proposerId,
-            status: 'COMPLETED'
+            status: 'COMPLETED',
+            amount: offer.amount
           }
         });
         
@@ -1394,20 +1421,21 @@ bot.on('callback_query', async (ctx) => {
       });
       
       const { completedProposal } = result;
+      const totalValue = offer.amount * offer.price;
       
       // Notify proposer
       const proposerMsg = 
         `✅ **خبر خوب! پیشنهاد قیمت شما پذیرفته شد.**\n\n` +
-        `🔹 **جزئیات پیشنهاد:** ${completedProposal.amount.toLocaleString('fa-IR')} ${completedProposal.currency} با قیمت واحد ${offer.price.toLocaleString('fa-IR')} تومان\n\n` +
+        `🔹 **جزئیات معامله:** مقدار <code>${offer.amount.toLocaleString('fa-IR')}</code> ${completedProposal.currency} با قیمت واحد ${offer.price.toLocaleString('fa-IR')} تومان (کل: ${totalValue.toLocaleString('fa-IR')} تومان)\n\n` +
         `👉 جهت هماهنگی، انجام معامله و مسائل مالی، لطفاً به ادمین ربات پیام دهید:\n` +
         `📣 آیدی ادمین: @${config.ADMIN_USERNAME}`;
          
-      await ctx.telegram.sendMessage(offer.proposer.telegramId, proposerMsg)
+      await ctx.telegram.sendMessage(offer.proposer.telegramId, proposerMsg, { parse_mode: 'HTML' })
         .catch(err => console.error('Failed to notify proposer:', err));
          
       // Notify creator (sender of callback)
       await ctx.reply(
-        `✅ معامله با قیمت پیشنهادی جدید ${offer.price.toLocaleString('fa-IR')} تومان ثبت شد. جهت انجام مراحل بعدی به ادمین مراجعه کنید: @${config.ADMIN_USERNAME}`
+        `✅ معامله برای مقدار ${offer.amount.toLocaleString('fa-IR')} با قیمت پیشنهادی جدید ${offer.price.toLocaleString('fa-IR')} تومان ثبت شد. جهت انجام مراحل بعدی به ادمین مراجعه کنید: @${config.ADMIN_USERNAME}`
       );
       
       // Notify admin
@@ -1423,10 +1451,10 @@ bot.on('callback_query', async (ctx) => {
         `📈 **جزئیات معامله:**\n` +
         `🔹 **نوع:** ${completedProposal.type === 'BUY' ? 'خرید' : 'فروش'}\n` +
         `🔹 **ارز:** ${completedProposal.currency}\n` +
-        `🔹 **مقدار:** ${completedProposal.amount.toLocaleString('fa-IR')}\n` +
+        `🔹 **مقدار معامله:** ${offer.amount.toLocaleString('fa-IR')}\n` +
         `🔹 **قیمت پایه اولیه:** ${completedProposal.price.toLocaleString('fa-IR')} تومان\n` +
         `🔹 **قیمت نهایی مورد توافق:** ${offer.price.toLocaleString('fa-IR')} تومان\n` +
-        `🔹 **مبلغ کل نهایی:** ${(completedProposal.amount * offer.price).toLocaleString('fa-IR')} تومان\n\n` +
+        `🔹 **مبلغ کل نهایی:** ${totalValue.toLocaleString('fa-IR')} تومان\n\n` +
         `👤 **سازنده پیشنهاد (Creator):**\n` +
         `   - نام: ${completedProposal.creator.firstName} ${completedProposal.creator.lastName || ''}\n` +
         `   - یوزرنیم: ${creatorContact}\n` +
@@ -1443,7 +1471,7 @@ bot.on('callback_query', async (ctx) => {
       await updateGroupProposalMessage(ctx.telegram, offer.proposalId);
       
       // Update the message in creator's chat to remove buttons
-      await ctx.editMessageText(`✅ پیشنهاد قیمت ${offer.price.toLocaleString('fa-IR')} تومانی را پذیرفتید. معامله ثبت شد.`).catch(() => {});
+      await ctx.editMessageText(`✅ پیشنهاد قیمت ${offer.price.toLocaleString('fa-IR')} تومانی را برای مقدار ${offer.amount.toLocaleString('fa-IR')} پذیرفتید. معامله ثبت شد.`).catch(() => {});
        
     } catch (err) {
       console.error('Error accepting counter offer:', err);
@@ -1511,9 +1539,20 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Delegate deal-specific callbacks to deepLink handler
-  if (data.startsWith('ACCEPT_DEAL_') || data === 'CANCEL_DEAL') {
-    await handleDealCallbacks(ctx);
+  // Handle Direct Deal Acceptance Click
+  if (data.startsWith('ACCEPT_DEAL_')) {
+    const proposalId = parseInt(data.replace('ACCEPT_DEAL_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(proposalId)) return;
+    await ctx.scene.enter(ACCEPT_DEAL_SCENE_ID, { proposalId, mode: 'DIRECT' });
+    return;
+  }
+
+  // Handle Cancel Deal Click
+  if (data === 'CANCEL_DEAL') {
+    await ctx.answerCbQuery();
+    await ctx.reply('❌ عملیات معامله لغو شد.');
+    await ctx.deleteMessage().catch(() => {});
     return;
   }
 });
