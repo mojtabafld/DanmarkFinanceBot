@@ -504,9 +504,15 @@ bot.on('callback_query', async (ctx) => {
       const dbUser = await prisma.user.findUnique({
         where: { telegramId: from.id.toString() }
       });
-      if (dbUser && dbUser.dailyProposalLimit >= 10) {
-        await ctx.answerCbQuery('⚠️ درخواست افزایش سقف روزانه شما قبلاً تایید شده است.', { show_alert: true });
-        return;
+      if (dbUser) {
+        if (dbUser.dailyProposalLimit >= 10) {
+          await ctx.answerCbQuery('⚠️ درخواست افزایش سقف روزانه شما قبلاً تایید شده است.', { show_alert: true });
+          return;
+        }
+        if (dbUser.hasPendingLimitRequest) {
+          await ctx.answerCbQuery('⚠️ شما در حال حاضر یک درخواست بررسی‌نشده دارید. لطفاً منتظر بمانید.', { show_alert: true });
+          return;
+        }
       }
     } catch (err) {
       console.error('Error checking user limit on callback:', err);
@@ -2124,10 +2130,13 @@ bot.on('callback_query', async (ctx) => {
           return;
         }
 
-        // Update limit to 10
+        // Update limit to 10 and clear pending limit request status
         const updatedUser = await prisma.user.update({
           where: { id: targetUserId },
-          data: { dailyProposalLimit: 10 }
+          data: {
+            dailyProposalLimit: 10,
+            hasPendingLimitRequest: false
+          }
         });
 
         // Notify user
@@ -2164,6 +2173,12 @@ bot.on('callback_query', async (ctx) => {
           await ctx.reply('❌ کاربر یافت نشد.');
           return;
         }
+
+        // Clear pending limit request status in database
+        await prisma.user.update({
+          where: { id: targetUserId },
+          data: { hasPendingLimitRequest: false }
+        });
 
         // Notify user
         await ctx.telegram.sendMessage(

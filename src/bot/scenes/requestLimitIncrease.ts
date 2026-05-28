@@ -30,9 +30,15 @@ export const requestLimitIncreaseWizard = new Scenes.WizardScene<MyLimitContext>
         where: { telegramId: from.id.toString() }
       });
 
-      if (dbUser && dbUser.dailyProposalLimit >= 10) {
-        await ctx.reply('⚠️ درخواست افزایش سقف روزانه شما قبلاً تایید شده است.', mainKeyboard);
-        return ctx.scene.leave();
+      if (dbUser) {
+        if (dbUser.dailyProposalLimit >= 10) {
+          await ctx.reply('⚠️ درخواست افزایش سقف روزانه شما قبلاً تایید شده است.', mainKeyboard);
+          return ctx.scene.leave();
+        }
+        if (dbUser.hasPendingLimitRequest) {
+          await ctx.reply('⚠️ شما در حال حاضر یک درخواست بررسی‌نشده دارید. لطفاً تا زمان پاسخ‌دهی مدیریت صبور باشید.', mainKeyboard);
+          return ctx.scene.leave();
+        }
       }
     } catch (err) {
       console.error('Error checking user limit in wizard start:', err);
@@ -99,6 +105,12 @@ export const requestLimitIncreaseWizard = new Scenes.WizardScene<MyLimitContext>
             ])
           }
         );
+
+        // Update user status to show they have a pending limit increase request
+        await prisma.user.update({
+          where: { id: dbUser.id },
+          data: { hasPendingLimitRequest: true }
+        });
 
         await ctx.reply('✅ درخواست شما با موفقیت برای مدیریت ارسال شد. نتیجه به زودی به شما اطلاع داده خواهد شد.', mainKeyboard);
 
