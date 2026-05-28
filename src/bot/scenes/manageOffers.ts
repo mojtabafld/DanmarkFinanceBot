@@ -215,7 +215,7 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
           });
           if (!offer) return ctx.scene.leave();
 
-          const maxAmount = offer.proposal.amount + offer.amount; // remaining + what we already took
+          const maxAmount = offer.proposal.amount;
           await ctx.reply(
             `✏️ **ویرایش مقدار پیشنهادی (آگهی کد ${offer.proposal.code})**\n\n` +
             `مقدار پیشنهادی فعلی شما: <code>${offer.amount.toLocaleString('fa-IR')}</code> ${offer.proposal.currency}\n` +
@@ -257,7 +257,7 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
         });
         if (!offer) return ctx.scene.leave();
 
-        const maxAmount = offer.proposal.amount + offer.amount;
+        const maxAmount = offer.proposal.amount;
         if (amount > maxAmount) {
           await ctx.reply(`⚠️ مقدار وارد شده (${amount.toLocaleString('fa-IR')}) نمی‌تواند بیشتر از حداکثر مقدار مجاز (${maxAmount.toLocaleString('fa-IR')}) باشد. لطفا مجددا وارد کنید:`);
           return;
