@@ -500,6 +500,18 @@ bot.on('callback_query', async (ctx) => {
   }
 
   if (data === 'USER_REQ_LIMIT_INCREASE') {
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { telegramId: from.id.toString() }
+      });
+      if (dbUser && dbUser.dailyProposalLimit >= 10) {
+        await ctx.answerCbQuery('⚠️ درخواست افزایش سقف روزانه شما قبلاً تایید شده است.', { show_alert: true });
+        return;
+      }
+    } catch (err) {
+      console.error('Error checking user limit on callback:', err);
+    }
+
     await ctx.answerCbQuery();
     await ctx.deleteMessage().catch(() => {});
     await ctx.scene.enter(REQUEST_LIMIT_INCREASE_SCENE_ID);

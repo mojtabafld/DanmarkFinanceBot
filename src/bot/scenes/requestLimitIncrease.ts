@@ -21,6 +21,22 @@ export const requestLimitIncreaseWizard = new Scenes.WizardScene<MyLimitContext>
   // Step 1: Prompt for message
   async (ctx) => {
     ctx.wizard.state = {};
+    const from = ctx.from;
+    if (!from) return ctx.scene.leave();
+
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { telegramId: from.id.toString() }
+      });
+
+      if (dbUser && dbUser.dailyProposalLimit >= 10) {
+        await ctx.reply('⚠️ درخواست افزایش سقف روزانه شما قبلاً تایید شده است.', mainKeyboard);
+        return ctx.scene.leave();
+      }
+    } catch (err) {
+      console.error('Error checking user limit in wizard start:', err);
+    }
+
     await ctx.reply(
       `📈 **درخواست افزایش سقف آگهی روزانه**\n\n` +
       `درخواست شما ثبت شد. در صورتی که می‌خواهید پیغامی برای ادمین بفرستید، متن خود را وارد کنید و روی دکمه ارسال ضربه بزنید. در غیر این صورت می‌توانید دکمه «ارسال درخواست افزایش سقف ثبت آگهی روزانه» را انتخاب کنید:`,
