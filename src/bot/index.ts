@@ -12,6 +12,7 @@ import { updateGroupProposalMessage, formatToShamsi } from './utils/groupMessage
 import { mainKeyboard, verifyStartKeyboard, pendingVerificationKeyboard } from './utils/keyboards';
 import { editProposalWizard, EDIT_PROPOSAL_SCENE_ID } from './scenes/editProposal';
 import { adminUpdateRatesWizard, ADMIN_UPDATE_RATES_SCENE_ID } from './scenes/adminUpdateRates';
+import { requestLimitIncreaseWizard, REQUEST_LIMIT_INCREASE_SCENE_ID } from './scenes/requestLimitIncrease';
 
 // Set up the custom context type for the bot
 export interface BotContext extends MyWizardContext {}
@@ -28,7 +29,8 @@ const stage = new Scenes.Stage<BotContext>([
   adminEditPropWizard,
   acceptDealWizard,
   editProposalWizard,
-  adminUpdateRatesWizard
+  adminUpdateRatesWizard,
+  requestLimitIncreaseWizard
 ]);
 bot.use(session());
 bot.use(stage.middleware());
@@ -80,6 +82,14 @@ const checkVerified = async (ctx: BotContext, next: () => Promise<void>) => {
       await ctx.reply(
         '⏳ مدارک احراز هویت شما در حال بررسی توسط مدیریت است. لطفا منتظر بمانید.',
         pendingVerificationKeyboard
+      );
+      return;
+    }
+
+    if (user?.verificationStatus === 'DEACTIVATED') {
+      await ctx.reply(
+        '⚠️ حساب کاربری شما موقتاً غیرفعال شده است. جهت استفاده از امکانات ربات باید ابتدا حساب خود را فعال کنید.',
+        Markup.keyboard([['🔄 فعال‌سازی حساب کاربری']]).resize()
       );
       return;
     }
@@ -139,6 +149,11 @@ bot.start(async (ctx) => {
         `سلام ${from.first_name} عزیز! 🌸\n` +
         `احراز هویت شما قبلا تایید شده است. می‌توانید از دکمه‌های زیر استفاده کنید:`,
         mainKeyboard
+      );
+    } else if (dbUser.verificationStatus === 'DEACTIVATED') {
+      await ctx.reply(
+        `⚠️ حساب کاربری شما موقتاً غیرفعال شده است. جهت فعال‌سازی مجدد حساب کاربری و ورود دوباره به گروه، روی دکمه زیر کلیک کنید:`,
+        Markup.keyboard([['🔄 فعال‌سازی حساب کاربری']]).resize()
       );
     } else {
       await ctx.reply(
@@ -239,6 +254,47 @@ bot.hears('❌ لغو ارسال اطلاعات', async (ctx) => {
   }
 });
 
+bot.hears('🔄 فعال‌سازی حساب کاربری', async (ctx) => {
+  const from = ctx.from;
+  if (!from) return;
+
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { telegramId: from.id.toString() }
+    });
+
+    if (!dbUser || dbUser.verificationStatus !== 'DEACTIVATED') {
+      await ctx.reply('⚠️ حساب کاربری شما در وضعیت غیرفعال قرار ندارد.');
+      return;
+    }
+
+    // Restore to APPROVED
+    const updatedUser = await prisma.user.update({
+      where: { telegramId: from.id.toString() },
+      data: { verificationStatus: 'APPROVED' }
+    });
+
+    // Generate invite link for the group
+    const inviteLink = await ctx.telegram.createChatInviteLink(config.GROUP_CHAT_ID, {
+      member_limit: 1,
+      name: `Re-invite for restored ${updatedUser.fullName || from.first_name}`,
+      expire_date: Math.floor(Date.now() / 1000) + 86400 // 24 hours
+    });
+
+    await ctx.reply(
+      `🎉 **حساب کاربری شما با موفقیت مجدداً فعال شد!**\n\n` +
+      `جهت ورود دوباره به گروه معاملاتی از لینک زیر استفاده کنید:\n` +
+      `🔗 ${inviteLink.invite_link}\n\n` +
+      `همچنین منوی ربات برای شما فعال گردید.`,
+      mainKeyboard
+    );
+
+  } catch (err) {
+    console.error('Error activating user:', err);
+    await ctx.reply('❌ خطا در فعال‌سازی حساب کاربری.');
+  }
+});
+
 // Text command handlers (Protected with checkVerified middleware)
 bot.hears('ثبت / ویرایش آگهی', checkVerified, async (ctx) => {
   const from = ctx.from;
@@ -324,7 +380,15 @@ bot.hears('⚙️ تنظیمات کاربری', checkVerified, async (ctx) => {
       `🔹 <b>محدودیت پیشنهاد روزانه:</b> ${dbUser.dailyProposalLimit} عدد\n` +
       `🔹 <b>تاریخ ثبت‌نام:</b> <code>${formatToShamsi(dbUser.createdAt)}</code>`;
 
-    await ctx.reply(infoText, { parse_mode: 'HTML', ...mainKeyboard });
+    await ctx.reply(infoText, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🚀 افزایش سقف محدودیت آگهی روزانه', 'USER_REQ_LIMIT_INCREASE')],
+        [Markup.button.callback('⏸ غیرفعال‌سازی موقت حساب کاربری', 'USER_DEACTIVATE_ACCOUNT')],
+        [Markup.button.callback('🗑 حذف کامل اطلاعات شما از ربات', 'USER_DELETE_ACCOUNT')],
+        [Markup.button.callback('🔙 بازگشت', 'USER_CLOSE_SETTINGS')]
+      ])
+    });
   } catch (err) {
     console.error('Error fetching user info:', err);
     await ctx.reply('❌ خطا در بارگذاری اطلاعات کاربری.');
@@ -406,6 +470,263 @@ bot.on('callback_query', async (ctx) => {
     await ctx.answerCbQuery();
     if (isNaN(proposalId)) return;
     await ctx.scene.enter(EDIT_PROPOSAL_SCENE_ID, { proposalId });
+    return;
+  }
+
+  // USER SETTINGS CALLBACKS
+  if (data === 'USER_CLOSE_SETTINGS') {
+    await ctx.answerCbQuery();
+    await ctx.deleteMessage().catch(() => {});
+    return;
+  }
+
+  if (data === 'USER_REQ_LIMIT_INCREASE') {
+    await ctx.answerCbQuery();
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.scene.enter(REQUEST_LIMIT_INCREASE_SCENE_ID);
+    return;
+  }
+
+  if (data === 'USER_DEACTIVATE_ACCOUNT') {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      `⚠️ <b>غیرفعال‌سازی موقت حساب کاربری</b>\n\n` +
+      `آیا از غیرفعال‌سازی موقت حساب خود اطمینان دارید؟\n` +
+      `با این کار:\n` +
+      `۱. تمامی آگهی‌های فعال شما لغو خواهند شد.\n` +
+      `۲. از گروه معاملاتی خارج خواهید شد.\n` +
+      `۳. دسترسی شما به منوهای ربات موقتاً قطع می‌شود.\n\n` +
+      `جهت فعال‌سازی مجدد در آینده، می‌توانید مجدداً دستور /start را بفرستید تا دکمه فعال‌سازی فعال شود.`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('✅ بله، غیرفعال کن', 'CONFIRM_DEACTIVATE_ACCOUNT'),
+            Markup.button.callback('❌ خیر، انصراف', 'CANCEL_DEACTIVATE_ACCOUNT')
+          ]
+        ])
+      }
+    ).catch(() => {});
+    return;
+  }
+
+  if (data === 'CANCEL_DEACTIVATE_ACCOUNT') {
+    await ctx.answerCbQuery();
+    await ctx.deleteMessage().catch(() => {});
+    return;
+  }
+
+  if (data === 'CONFIRM_DEACTIVATE_ACCOUNT') {
+    await ctx.answerCbQuery();
+    try {
+      const user = await prisma.user.findUnique({
+        where: { telegramId: from.id.toString() }
+      });
+
+      if (!user) {
+        await ctx.reply('❌ اطلاعات کاربری شما یافت نشد.');
+        return;
+      }
+
+      // 1. Get all active and pending approval proposals of this user
+      const activeProps = await prisma.proposal.findMany({
+        where: {
+          creatorId: user.id,
+          status: { in: ['PENDING', 'PENDING_APPROVAL', 'LOCKED'] }
+        }
+      });
+
+      // 2. Mark them CANCELLED in DB and update group messages
+      for (const prop of activeProps) {
+        await prisma.proposal.update({
+          where: { id: prop.id },
+          data: { status: 'CANCELLED' }
+        });
+
+        if (prop.groupMessageId) {
+          await updateGroupProposalMessage(ctx.telegram, prop.id);
+        }
+      }
+
+      // 2.5. Reject all pending counter offers made by this user on other proposals
+      const pendingOffers = await prisma.counterOffer.findMany({
+        where: {
+          proposerId: user.id,
+          status: 'PENDING'
+        }
+      });
+      for (const offer of pendingOffers) {
+        await prisma.counterOffer.update({
+          where: { id: offer.id },
+          data: { status: 'REJECTED' }
+        });
+        await updateGroupProposalMessage(ctx.telegram, offer.proposalId);
+      }
+
+      // 3. Update User status to DEACTIVATED
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { verificationStatus: 'DEACTIVATED' }
+      });
+
+      // 4. Kick from group
+      const tgId = parseInt(user.telegramId, 10);
+      await ctx.telegram.banChatMember(config.GROUP_CHAT_ID, tgId).catch(() => {});
+      await ctx.telegram.unbanChatMember(config.GROUP_CHAT_ID, tgId).catch(() => {});
+
+      const keyboard = Markup.keyboard([
+        ['🔄 فعال‌سازی حساب کاربری']
+      ]).resize();
+
+      await ctx.editMessageText(
+        `⚠️ <b>حساب کاربری شما با موفقیت موقتاً غیرفعال شد.</b>\n\n` +
+        `شما از گروه معاملاتی خارج شدید و آگهی‌های فعال شما لغو گردید.\n` +
+        `هر زمان که مایل به استفاده مجدد بودید، می‌توانید از دکمه زیر جهت فعال‌سازی مجدد استفاده کنید:`,
+        { parse_mode: 'HTML' }
+      ).catch(() => {});
+
+      await ctx.reply('حساب کاربری شما موقتاً غیرفعال گردید.', keyboard);
+
+    } catch (err) {
+      console.error('Error deactivating account:', err);
+      await ctx.reply('❌ خطا در غیرفعال‌سازی حساب کاربری.');
+    }
+    return;
+  }
+
+  if (data === 'USER_DELETE_ACCOUNT') {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      `⚠️ <b>حذف کامل اطلاعات از ربات</b>\n\n` +
+      `آیا از حذف کامل اطلاعات خود از ربات اطمینان دارید؟\n` +
+      `این عملیات <b>غیرقابل بازگشت</b> است و شامل موارد زیر می‌شود:\n` +
+      `۱. تمامی آگهی‌های فعال شما لغو و از دیتابیس پاک خواهند شد.\n` +
+      `۲. تمام مشخصات فردی و مدارک ارسالی شما کاملاً حذف خواهند شد.\n` +
+      `۳. از گروه معاملاتی خارج خواهید شد.\n` +
+      `۴. سابقه معاملات انجام‌شده و آرشیو شما برای ادمین باقی خواهد ماند اما نام شما از روی آن‌ها پاک می‌شود.\n\n` +
+      `آیا مایل به حذف هستید؟`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('✅ بله، کاملاً مطمئنم', 'CONFIRM_DELETE_MY_ACCOUNT'),
+            Markup.button.callback('❌ خیر، انصراف', 'CANCEL_DELETE_MY_ACCOUNT')
+          ]
+        ])
+      }
+    ).catch(() => {});
+    return;
+  }
+
+  if (data === 'CANCEL_DELETE_MY_ACCOUNT') {
+    await ctx.answerCbQuery();
+    await ctx.deleteMessage().catch(() => {});
+    return;
+  }
+
+  if (data === 'CONFIRM_DELETE_MY_ACCOUNT') {
+    await ctx.answerCbQuery();
+    try {
+      const user = await prisma.user.findUnique({
+        where: { telegramId: from.id.toString() }
+      });
+
+      if (!user) {
+        await ctx.reply('❌ اطلاعات کاربری شما یافت نشد.');
+        return;
+      }
+
+      // 1. Get and delete active/pending proposals
+      const activeProps = await prisma.proposal.findMany({
+        where: {
+          creatorId: user.id,
+          status: { in: ['PENDING', 'PENDING_APPROVAL', 'LOCKED'] }
+        }
+      });
+
+      // Find in-progress deals for these proposals to notify the acceptors before deletion
+      const pendingDeals = await prisma.deal.findMany({
+        where: {
+          proposalId: { in: activeProps.map(p => p.id) },
+          status: 'PENDING_ADMIN'
+        },
+        include: { acceptor: true }
+      });
+
+      for (const deal of pendingDeals) {
+        await ctx.telegram.sendMessage(
+          deal.acceptor.telegramId,
+          `⚠️ **معامله مربوط به آگهی #${deal.proposalId} به دلیل حذف حساب کاربری ثبت‌کننده لغو شد.**`
+        ).catch(() => {});
+      }
+
+      for (const prop of activeProps) {
+        if (prop.groupMessageId) {
+          await ctx.telegram.deleteMessage(config.GROUP_CHAT_ID, prop.groupMessageId).catch(() => {});
+        }
+      }
+
+      await prisma.proposal.deleteMany({
+        where: {
+          creatorId: user.id,
+          status: { in: ['PENDING', 'PENDING_APPROVAL', 'LOCKED'] }
+        }
+      });
+
+      // 2. Reject all pending counter offers made by this user on other proposals
+      const myOffers = await prisma.counterOffer.findMany({
+        where: {
+          proposerId: user.id,
+          status: 'PENDING'
+        }
+      });
+      for (const offer of myOffers) {
+        await prisma.counterOffer.update({
+          where: { id: offer.id },
+          data: { status: 'REJECTED' }
+        });
+        await updateGroupProposalMessage(ctx.telegram, offer.proposalId);
+      }
+
+      // 3. Kick from group
+      const tgId = parseInt(user.telegramId, 10);
+      await ctx.telegram.banChatMember(config.GROUP_CHAT_ID, tgId).catch(() => {});
+      await ctx.telegram.unbanChatMember(config.GROUP_CHAT_ID, tgId).catch(() => {});
+
+      // 4. Update/Anonymize User record to DELETED state and change telegramId
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          telegramId: `deleted_${user.id}_${Date.now()}`,
+          firstName: 'حذف شده',
+          lastName: null,
+          fullName: 'کاربر حذف شده',
+          username: null,
+          phoneNumber: null,
+          documentFileId: null,
+          country: null,
+          rejectReason: null,
+          verificationStatus: 'DELETED'
+        }
+      });
+
+      const keyboard = Markup.keyboard([
+        ['🔐 شروع احراز هویت']
+      ]).resize();
+
+      await ctx.editMessageText(
+        `🗑 <b>اطلاعات کاربری شما با موفقیت به طور کامل حذف شد.</b>\n\n` +
+        `شما از سیستم و گروه معاملاتی خارج شدید.\n` +
+        `برای استفاده مجدد، باید مجدداً فرآیند احراز هویت را آغاز کنید.`,
+        { parse_mode: 'HTML' }
+      ).catch(() => {});
+
+      await ctx.reply('اطلاعات شما با موفقیت حذف شد. برای استفاده مجدد باید از ابتدا احراز هویت کنید.', keyboard);
+
+    } catch (err) {
+      console.error('Error deleting my account:', err);
+      await ctx.reply('❌ خطا در حذف کامل اطلاعات کاربری.');
+    }
     return;
   }
 
@@ -1741,6 +2062,80 @@ bot.on('callback_query', async (ctx) => {
       } catch (err) {
         console.error('Error rejecting proposal:', err);
         await ctx.reply('❌ خطا در رد آگهی.');
+      }
+      return;
+    }
+
+    // 26. Admin Approve Limit Increase Handler
+    if (data.startsWith('ADMIN_APPROVE_LIMIT_')) {
+      const targetUserId = parseInt(data.replace('ADMIN_APPROVE_LIMIT_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(targetUserId)) return;
+
+      try {
+        const targetUser = await prisma.user.findUnique({
+          where: { id: targetUserId }
+        });
+
+        if (!targetUser) {
+          await ctx.reply('❌ کاربر یافت نشد.');
+          return;
+        }
+
+        // Update limit to 10
+        const updatedUser = await prisma.user.update({
+          where: { id: targetUserId },
+          data: { dailyProposalLimit: 10 }
+        });
+
+        // Notify user
+        await ctx.telegram.sendMessage(
+          targetUser.telegramId,
+          `🎉 **درخواست افزایش سقف آگهی روزانه شما تایید شد!**\n\n` +
+          `سقف آگهی‌های مجاز روزانه شما به <code>10</code> عدد افزایش یافت.`,
+          { parse_mode: 'HTML' }
+        ).catch(err => console.error('Failed to notify user about limit increase approval:', err));
+
+        // Update admin message
+        const confirmationText = `✅ درخواست افزایش سقف روزانه کاربر <b>${updatedUser.fullName || updatedUser.firstName}</b> با موفقیت تایید شد و به ۱۰ عدد ارتقا یافت.`;
+        await ctx.editMessageText(confirmationText, { parse_mode: 'HTML' }).catch(() => {});
+
+      } catch (err) {
+        console.error('Error in ADMIN_APPROVE_LIMIT:', err);
+        await ctx.reply('❌ خطا در اعمال تغییرات سقف روزانه.');
+      }
+      return;
+    }
+
+    // 27. Admin Reject Limit Increase Handler
+    if (data.startsWith('ADMIN_REJECT_LIMIT_')) {
+      const targetUserId = parseInt(data.replace('ADMIN_REJECT_LIMIT_', ''), 10);
+      await ctx.answerCbQuery();
+      if (isNaN(targetUserId)) return;
+
+      try {
+        const targetUser = await prisma.user.findUnique({
+          where: { id: targetUserId }
+        });
+
+        if (!targetUser) {
+          await ctx.reply('❌ کاربر یافت نشد.');
+          return;
+        }
+
+        // Notify user
+        await ctx.telegram.sendMessage(
+          targetUser.telegramId,
+          `❌ **درخواست افزایش سقف آگهی روزانه شما مورد موافقت مدیریت قرار نگرفت.**`
+        ).catch(err => console.error('Failed to notify user about limit increase rejection:', err));
+
+        // Update admin message
+        const confirmationText = `❌ درخواست افزایش سقف روزانه کاربر <b>${targetUser.fullName || targetUser.firstName}</b> رد شد.`;
+        await ctx.editMessageText(confirmationText, { parse_mode: 'HTML' }).catch(() => {});
+
+      } catch (err) {
+        console.error('Error in ADMIN_REJECT_LIMIT:', err);
+        await ctx.reply('❌ خطا در رد درخواست.');
       }
       return;
     }
