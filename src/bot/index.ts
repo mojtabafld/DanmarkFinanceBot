@@ -16,6 +16,8 @@ import { adminUpdateRatesWizard, ADMIN_UPDATE_RATES_SCENE_ID } from './scenes/ad
 import { requestLimitIncreaseWizard, REQUEST_LIMIT_INCREASE_SCENE_ID } from './scenes/requestLimitIncrease';
 import { manageAdsWizard, MANAGE_ADS_SCENE_ID } from './scenes/manageAds';
 import { manageOffersWizard, MANAGE_OFFERS_SCENE_ID } from './scenes/manageOffers';
+import { uploadReceiptWizard, UPLOAD_RECEIPT_SCENE_ID } from './scenes/uploadReceipt';
+import { getMainKeyboard } from './utils/keyboards';
 
 // Set up the custom context type for the bot
 export interface BotContext extends MyWizardContext {}
@@ -35,10 +37,52 @@ const stage = new Scenes.Stage<BotContext>([
   adminUpdateRatesWizard,
   requestLimitIncreaseWizard,
   manageAdsWizard,
-  manageOffersWizard
+  manageOffersWizard,
+  uploadReceiptWizard
 ]);
 bot.use(session());
 bot.use(stage.middleware());
+
+// Dynamic Keyboard Middleware: intercepts mainKeyboard sending and converts it to dynamic keyboard
+bot.use(async (ctx, next) => {
+  const telegramId = ctx.from?.id.toString() || '';
+
+  const originalReply = ctx.reply.bind(ctx);
+  ctx.reply = async (text: string, extra: any = {}) => {
+    if (extra && typeof extra === 'object') {
+      if (extra === mainKeyboard || (extra.reply_markup && (extra.reply_markup === mainKeyboard.reply_markup || JSON.stringify(extra.reply_markup) === JSON.stringify(mainKeyboard.reply_markup)))) {
+        const dynamicKb = await getMainKeyboard(telegramId);
+        extra.reply_markup = dynamicKb.reply_markup;
+      }
+    }
+    return originalReply(text, extra);
+  };
+  
+  const originalReplyWithHTML = ctx.replyWithHTML.bind(ctx);
+  ctx.replyWithHTML = async (text: string, extra: any = {}) => {
+    if (extra && typeof extra === 'object') {
+      if (extra === mainKeyboard || (extra.reply_markup && (extra.reply_markup === mainKeyboard.reply_markup || JSON.stringify(extra.reply_markup) === JSON.stringify(mainKeyboard.reply_markup)))) {
+        const dynamicKb = await getMainKeyboard(telegramId);
+        extra.reply_markup = dynamicKb.reply_markup;
+      }
+    }
+    return originalReplyWithHTML(text, extra);
+  };
+
+  const originalReplyWithMarkdown = ctx.replyWithMarkdown.bind(ctx);
+  ctx.replyWithMarkdown = async (text: string, extra: any = {}) => {
+    if (extra && typeof extra === 'object') {
+      if (extra === mainKeyboard || (extra.reply_markup && (extra.reply_markup === mainKeyboard.reply_markup || JSON.stringify(extra.reply_markup) === JSON.stringify(mainKeyboard.reply_markup)))) {
+        const dynamicKb = await getMainKeyboard(telegramId);
+        extra.reply_markup = dynamicKb.reply_markup;
+      }
+    }
+    return originalReplyWithMarkdown(text, extra);
+  };
+
+  return next();
+});
+
 
 
 
@@ -476,6 +520,10 @@ bot.hears('📜 شرایط تبادل ارز', checkVerified, async (ctx) => {
     `⚠️ **نکته بسیار مهم:** به هیچ عنوان وجهی را مستقیماً به حساب طرف مقابل واریز نکنید. ربات و مدیریت هیچ مسئولیتی در قبال انتقال‌های خارج از شبکه نظارتی ادمین بر عهده نخواهند داشت.`;
 
   await ctx.reply(termsText, mainKeyboard);
+});
+
+bot.hears('📤 ارسال فیش واریزی', checkVerified, async (ctx) => {
+  await ctx.scene.enter(UPLOAD_RECEIPT_SCENE_ID);
 });
 
 // Catch-all text handler for verified users to restore keyboard
@@ -2528,15 +2576,204 @@ bot.on('callback_query', async (ctx) => {
       const agreedPrice = acceptedOffer ? acceptedOffer.price : deal.proposal.price;
       const totalValue = deal.amount * agreedPrice;
 
-      // Run Transaction to complete the deal
+      // Update deal status to WAITING_BUYER_PAYMENT
+      await prisma.deal.update({
+        where: { id: dealId },
+        data: { status: 'WAITING_BUYER_PAYMENT' }
+      });
+
+      const isProposalBuy = deal.proposal.type === 'BUY';
+      const isCreatorBuyer = isProposalBuy;
+      const buyer = isCreatorBuyer ? deal.proposal.creator : deal.acceptor;
+      const seller = isCreatorBuyer ? deal.acceptor : deal.proposal.creator;
+
+      const buyerContact = buyer.username 
+        ? `@${buyer.username}` 
+        : `<a href="tg://user?id=${buyer.telegramId}">${buyer.firstName}</a>`;
+      const sellerContact = seller.username 
+        ? `@${seller.username}` 
+        : `<a href="tg://user?id=${seller.telegramId}">${seller.firstName}</a>`;
+
+      // Notify Buyer
+      const buyerMsg = 
+        `🎉 **معامله شما توسط مدیریت تایید اولیه شد!**\n\n` +
+        `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت توافقی ${agreedPrice.toLocaleString('fa-IR')} تومان\n` +
+        `🔹 **مبلغ کل معامله:** <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
+        `👤 **فروشنده:** ${sellerContact}\n\n` +
+        `⚠️ **مراحل پرداخت:**\n` +
+        `لطفاً مبلغ کل معامله را به شماره حساب ادمین واریز نموده و تصویر فیش واریزی را از طریق دکمه **«📤 ارسال فیش واریزی»** در منوی اصلی ارسال کنید.\n` +
+        `👉 ارتباط با ادمین جهت دریافت شماره حساب: @${config.ADMIN_USERNAME}`;
+
+      await ctx.telegram.sendMessage(buyer.telegramId, buyerMsg, { parse_mode: 'HTML' })
+        .catch(err => console.error('Failed to notify buyer of admin approval:', err));
+
+      // Notify Seller
+      const sellerMsg = 
+        `🎉 **معامله شما توسط مدیریت تایید اولیه شد!**\n\n` +
+        `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت توافقی ${agreedPrice.toLocaleString('fa-IR')} تومان\n` +
+        `🔹 **مبلغ کل معامله:** <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
+        `👤 **خریدار:** ${buyerContact}\n\n` +
+        `⚠️ **توجه:**\n` +
+        `ابتدا خریدار باید وجه ریالی را به حساب ادمین واریز کند. پس از واریز خریدار و تایید نهایی آن توسط مدیریت، پیامی برای شما ارسال می‌شود تا مقدار کرون مورد نظر را به حساب خریدار واریز کرده و فیش آن را ارسال نمایید.\n` +
+        `تا آن زمان نیاز به اقدامی از سمت شما نیست.`;
+
+      await ctx.telegram.sendMessage(seller.telegramId, sellerMsg, { parse_mode: 'HTML' })
+        .catch(err => console.error('Failed to notify seller of admin approval:', err));
+
+      // Update admin message
+      await ctx.editMessageText(`✅ معامله #${dealId} تایید اولیه شد. در انتظار واریز خریدار.`).catch(() => {});
+
+      // Update group message
+      await updateGroupProposalMessage(ctx.telegram, deal.proposalId);
+
+    } catch (err) {
+      console.error('Error in ADMIN_DEAL_APPROVE callback:', err);
+      await ctx.reply('❌ خطایی در تایید معامله رخ داد.');
+    }
+    return;
+  }
+
+  // Handle Admin Approving Buyer's Receipt
+  if (data.startsWith('APPROVE_BUYER_RECEIPT_')) {
+    const dealId = parseInt(data.replace('APPROVE_BUYER_RECEIPT_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(dealId)) return;
+
+    try {
+      const deal = await prisma.deal.findUnique({
+        where: { id: dealId },
+        include: {
+          proposal: { include: { creator: true } },
+          acceptor: true
+        }
+      });
+
+      if (!deal || deal.status !== 'BUYER_PAID_PENDING_APPROVAL') {
+        await ctx.reply('❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است.');
+        return;
+      }
+
+      await prisma.deal.update({
+        where: { id: dealId },
+        data: { status: 'WAITING_SELLER_PAYMENT' }
+      });
+
+      const isProposalBuy = deal.proposal.type === 'BUY';
+      const buyer = isProposalBuy ? deal.proposal.creator : deal.acceptor;
+      const seller = isProposalBuy ? deal.acceptor : deal.proposal.creator;
+
+      const buyerContact = buyer.username 
+        ? `@${buyer.username}` 
+        : `<a href="tg://user?id=${buyer.telegramId}">${buyer.firstName}</a>`;
+
+      // Notify Buyer
+      await ctx.telegram.sendMessage(
+        buyer.telegramId,
+        `✅ فیش واریزی ریالی شما توسط مدیریت تایید شد. منتظر واریز کرون توسط فروشنده باشید.`,
+        { parse_mode: 'HTML' }
+      ).catch(err => console.error(err));
+
+      // Notify Seller
+      const sellerNotifyMsg =
+        `🔔 **خریدار مبلغ معامله را به حساب ادمین واریز کرد و مورد تایید قرار گرفت.**\n\n` +
+        `اکنون نوبت شماست که مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} را به حساب خریدار واریز کرده و تصویر فیش واریزی آن را از طریق دکمه **«📤 ارسال فیش واریزی»** در زیر منوی اصلی ارسال نمایید.\n\n` +
+        `👤 **خریدار:** ${buyerContact}\n` +
+        `👉 ارتباط با خریدار/ادمین جهت دریافت اطلاعات حساب خریدار: @${config.ADMIN_USERNAME}`;
+
+      await ctx.telegram.sendMessage(
+        seller.telegramId,
+        sellerNotifyMsg,
+        { parse_mode: 'HTML' }
+      ).catch(err => console.error(err));
+
+      await ctx.editMessageText(`✅ فیش واریز خریدار تایید شد. معامله #${dealId} در انتظار واریز کرون فروشنده.`).catch(() => {});
+    } catch (err) {
+      console.error(err);
+      await ctx.reply('❌ خطا در تایید فیش خریدار.');
+    }
+    return;
+  }
+
+  // Handle Admin Rejecting Buyer's Receipt
+  if (data.startsWith('REJECT_BUYER_RECEIPT_')) {
+    const dealId = parseInt(data.replace('REJECT_BUYER_RECEIPT_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(dealId)) return;
+
+    try {
+      const deal = await prisma.deal.findUnique({
+        where: { id: dealId },
+        include: {
+          proposal: { include: { creator: true } },
+          acceptor: true
+        }
+      });
+
+      if (!deal || deal.status !== 'BUYER_PAID_PENDING_APPROVAL') {
+        await ctx.reply('❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است.');
+        return;
+      }
+
+      await prisma.deal.update({
+        where: { id: dealId },
+        data: { status: 'WAITING_BUYER_PAYMENT' }
+      });
+
+      const isProposalBuy = deal.proposal.type === 'BUY';
+      const buyer = isProposalBuy ? deal.proposal.creator : deal.acceptor;
+
+      await ctx.telegram.sendMessage(
+        buyer.telegramId,
+        `❌ **فیش واریز ریالی شما توسط مدیریت رد شد.**\n\n` +
+        `لطفاً مجدداً بررسی نموده و فیش معتبر را از طریق دکمه **«📤 ارسال فیش واریزی»** ارسال نمایید.`,
+        { parse_mode: 'HTML' }
+      ).catch(err => console.error(err));
+
+      await ctx.editMessageText(`❌ فیش واریز خریدار برای معامله #${dealId} رد شد.`).catch(() => {});
+    } catch (err) {
+      console.error(err);
+      await ctx.reply('❌ خطا در رد فیش خریدار.');
+    }
+    return;
+  }
+
+  // Handle Admin Approving Seller's Receipt (Complete Deal)
+  if (data.startsWith('APPROVE_SELLER_RECEIPT_')) {
+    const dealId = parseInt(data.replace('APPROVE_SELLER_RECEIPT_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(dealId)) return;
+
+    try {
+      const deal = await prisma.deal.findUnique({
+        where: { id: dealId },
+        include: {
+          proposal: { include: { creator: true } },
+          acceptor: true
+        }
+      });
+
+      if (!deal || deal.status !== 'SELLER_PAID_PENDING_APPROVAL') {
+        await ctx.reply('❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است.');
+        return;
+      }
+
+      const acceptedOffer = await prisma.counterOffer.findFirst({
+        where: {
+          proposalId: deal.proposalId,
+          proposerId: deal.acceptorId,
+          status: 'ACCEPTED'
+        }
+      });
+      const agreedPrice = acceptedOffer ? acceptedOffer.price : deal.proposal.price;
+      const totalValue = deal.amount * agreedPrice;
+
+      // Run Transaction to complete the deal finally!
       const result = await prisma.$transaction(async (tx) => {
-        // Mark deal as COMPLETED
         const completedDeal = await tx.deal.update({
           where: { id: dealId },
           data: { status: 'COMPLETED' }
         });
 
-        // Get proposal details
         const freshProposal = await tx.proposal.findUnique({
           where: { id: deal.proposalId }
         });
@@ -2547,7 +2784,6 @@ bot.on('callback_query', async (ctx) => {
 
         let updatedProposal = freshProposal;
 
-        // If the proposal status is LOCKED (meaning it was fully traded at initiation)
         if (freshProposal.status === 'LOCKED') {
           updatedProposal = await tx.proposal.update({
             where: { id: deal.proposalId },
@@ -2555,14 +2791,11 @@ bot.on('callback_query', async (ctx) => {
             include: { creator: true }
           });
 
-          // Reject other pending counter offers since proposal is completed
           await tx.counterOffer.updateMany({
             where: { proposalId: deal.proposalId, status: 'PENDING' },
             data: { status: 'REJECTED' }
           });
         } else {
-          // It's still PENDING (partial deal approved).
-          // We just reject any pending offers that exceed the remaining amount.
           await tx.counterOffer.updateMany({
             where: {
               proposalId: deal.proposalId,
@@ -2576,45 +2809,89 @@ bot.on('callback_query', async (ctx) => {
         return { completedDeal, updatedProposal };
       });
 
-      // Notifications
-      const creatorContact = deal.acceptor.username 
-        ? `@${deal.acceptor.username}` 
-        : `<a href="tg://user?id=${deal.acceptor.telegramId}">${deal.acceptor.firstName}</a>`;
-      const acceptorContact = deal.proposal.creator.username 
-        ? `@${deal.proposal.creator.username}` 
-        : `<a href="tg://user?id=${deal.proposal.creator.telegramId}">${deal.proposal.creator.firstName}</a>`;
+      const isProposalBuy = deal.proposal.type === 'BUY';
+      const buyer = isProposalBuy ? deal.proposal.creator : deal.acceptor;
+      const seller = isProposalBuy ? deal.acceptor : deal.proposal.creator;
 
-      // Notify Creator
-      const creatorMsg = 
-        `🎉 **معامله شما توسط مدیریت تایید نهایی شد!**\n\n` +
-        `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت توافقی ${agreedPrice.toLocaleString('fa-IR')} تومان با موفقیت معامله شد.\n` +
-        `🔹 **مبلغ کل معامله:** <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
-        `👤 **طرف معامله:** ${creatorContact}\n\n` +
-        `👉 جهت انجام امور مالی و نهایی کردن انتقال، با ادمین در ارتباط باشید: @${config.ADMIN_USERNAME}`;
+      const buyerContact = buyer.username 
+        ? `@${buyer.username}` 
+        : `<a href="tg://user?id=${buyer.telegramId}">${buyer.firstName}</a>`;
+      const sellerContact = seller.username 
+        ? `@${seller.username}` 
+        : `<a href="tg://user?id=${seller.telegramId}">${seller.firstName}</a>`;
 
-      await ctx.telegram.sendMessage(deal.proposal.creator.telegramId, creatorMsg, { parse_mode: 'HTML' })
-        .catch(err => console.error('Failed to notify creator of admin approval:', err));
+      // Notify Buyer
+      const buyerCompletedMsg =
+        `🎉 **معامله به طور کامل تکمیل و نهایی شد!**\n\n` +
+        `فروشنده فیش انتقال کرون را ارسال و مدیریت آن را تایید کرد. ارز مورد نظر به حساب شما منتقل شده است.\n` +
+        `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت توافقی ${agreedPrice.toLocaleString('fa-IR')} تومان\n` +
+        `👤 **فروشنده:** ${sellerContact}\n\n` +
+        `با تشکر از معامله شما!`;
 
-      // Notify Acceptor/Proposer
-      const acceptorMsg = 
-        `🎉 **معامله شما توسط مدیریت تایید نهایی شد!**\n\n` +
-        `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت توافقی ${agreedPrice.toLocaleString('fa-IR')} تومان با موفقیت معامله شد.\n` +
-        `🔹 **مبلغ کل معامله:** <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
-        `👤 **طرف معامله:** ${acceptorContact}\n\n` +
-        `👉 جهت انجام امور مالی و نهایی کردن انتقال، با ادمین در ارتباط باشید: @${config.ADMIN_USERNAME}`;
+      await ctx.telegram.sendMessage(buyer.telegramId, buyerCompletedMsg, { parse_mode: 'HTML' })
+        .catch(err => console.error(err));
 
-      await ctx.telegram.sendMessage(deal.acceptor.telegramId, acceptorMsg, { parse_mode: 'HTML' })
-        .catch(err => console.error('Failed to notify acceptor of admin approval:', err));
+      // Notify Seller
+      const sellerCompletedMsg =
+        `🎉 **معامله به طور کامل تکمیل و نهایی شد!**\n\n` +
+        `فیش انتقال کرون شما توسط مدیریت تایید شد. وجه ریالی توسط ادمین به حساب شما واریز خواهد شد (یا واریز شده است).\n` +
+        `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت توافقی ${agreedPrice.toLocaleString('fa-IR')} تومان\n` +
+        `👤 **خریدار:** ${buyerContact}\n\n` +
+        `با تشکر از معامله شما!`;
 
-      // Update admin message
-      await ctx.editMessageText(`✅ معامله #${dealId} با موفقیت تایید نهایی شد.`).catch(() => {});
+      await ctx.telegram.sendMessage(seller.telegramId, sellerCompletedMsg, { parse_mode: 'HTML' })
+        .catch(err => console.error(err));
+
+      await ctx.editMessageText(`✅ فیش انتقال فروشنده تایید و معامله #${dealId} تکمیل نهایی شد.`).catch(() => {});
 
       // Update group message
       await updateGroupProposalMessage(ctx.telegram, deal.proposalId);
-
     } catch (err) {
-      console.error('Error in ADMIN_DEAL_APPROVE callback:', err);
-      await ctx.reply('❌ خطایی در تایید معامله رخ داد.');
+      console.error(err);
+      await ctx.reply('❌ خطا در تایید فیش فروشنده.');
+    }
+    return;
+  }
+
+  // Handle Admin Rejecting Seller's Receipt
+  if (data.startsWith('REJECT_SELLER_RECEIPT_')) {
+    const dealId = parseInt(data.replace('REJECT_SELLER_RECEIPT_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(dealId)) return;
+
+    try {
+      const deal = await prisma.deal.findUnique({
+        where: { id: dealId },
+        include: {
+          proposal: { include: { creator: true } },
+          acceptor: true
+        }
+      });
+
+      if (!deal || deal.status !== 'SELLER_PAID_PENDING_APPROVAL') {
+        await ctx.reply('❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است.');
+        return;
+      }
+
+      await prisma.deal.update({
+        where: { id: dealId },
+        data: { status: 'WAITING_SELLER_PAYMENT' }
+      });
+
+      const isProposalBuy = deal.proposal.type === 'BUY';
+      const seller = isProposalBuy ? deal.acceptor : deal.proposal.creator;
+
+      await ctx.telegram.sendMessage(
+        seller.telegramId,
+        `❌ **فیش انتقال کرون شما توسط مدیریت رد شد.**\n\n` +
+        `لطفاً مجدداً بررسی نموده و فیش معتبر را از طریق دکمه **«📤 ارسال فیش واریزی»** ارسال نمایید.`,
+        { parse_mode: 'HTML' }
+      ).catch(err => console.error(err));
+
+      await ctx.editMessageText(`❌ فیش انتقال فروشنده برای معامله #${dealId} رد شد.`).catch(() => {});
+    } catch (err) {
+      console.error(err);
+      await ctx.reply('❌ خطا در رد فیش فروشنده.');
     }
     return;
   }
