@@ -31,7 +31,7 @@ export async function handleDeepLink(ctx: Context, payload: string) {
           ? `https://t.me/c/${cleanChatId}/${prop.groupMessageId}`
           : `https://t.me/${config.BOT_USERNAME}`;
 
-        text += `🔹 <a href="${link}">حواله #${prop.code ?? prop.id}</a> | <b>${typeText}</b> | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${prop.currency} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n`;
+        text += `🔹 <a href="${link}">حواله #${prop.code ?? prop.id}</a> | <b>${typeText}</b> | تسویه: <code>${prop.paymentMethod ?? '---'}</code> | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${prop.currency} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n`;
       });
 
       await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
