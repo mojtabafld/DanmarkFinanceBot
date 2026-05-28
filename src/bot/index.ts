@@ -724,6 +724,17 @@ bot.on('callback_query', async (ctx) => {
       await ctx.telegram.banChatMember(config.GROUP_CHAT_ID, tgId).catch(() => {});
       await ctx.telegram.unbanChatMember(config.GROUP_CHAT_ID, tgId).catch(() => {});
 
+      // 3.5. Notify Admin of account deletion
+      const adminNotice =
+        `🗑 <b>حذف کامل اطلاعات کاربری</b>\n\n` +
+        `👤 <b>کاربر:</b> ${user.fullName || user.firstName} (${user.username ? `@${user.username}` : 'بدون یوزرنیم'})\n` +
+        `📱 <b>تلفن:</b> <code>${user.phoneNumber ?? '---'}</code>\n` +
+        `🆔 <b>شناسه تلگرام:</b> <code>${user.telegramId}</code>\n\n` +
+        `⚠️ اطلاعات این کاربر به همراه کلیه آگهی‌های فعال وی از دیتابیس حذف شده و کاربر از گروه معاملاتی اخراج گردید.`;
+
+      await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminNotice, { parse_mode: 'HTML' })
+        .catch(err => console.error('Failed to notify admin of user deletion:', err));
+
       // 4. Update/Anonymize User record to DELETED state and change telegramId
       await prisma.user.update({
         where: { id: user.id },
