@@ -526,6 +526,15 @@ bot.hears('📤 ارسال فیش واریزی', checkVerified, async (ctx) => {
   await ctx.scene.enter(UPLOAD_RECEIPT_SCENE_ID);
 });
 
+bot.hears('📞 ارتباط مستقیم با ادمین', checkVerified, async (ctx) => {
+  await ctx.reply(
+    `📞 **ارتباط مستقیم با مدیریت**\n\n` +
+    `جهت گفتگو، رفع مشکل یا هماهنگی واریز/انتقال می‌توانید با آیدی زیر در ارتباط باشید:\n\n` +
+    `👉 @${config.ADMIN_USERNAME}`,
+    mainKeyboard
+  );
+});
+
 // Catch-all text handler for verified users to restore keyboard
 bot.on('text', checkVerified, async (ctx) => {
   await ctx.reply('لطفاً جهت استفاده از امکانات ربات، یکی از دکمه‌های زیر را انتخاب کنید:', mainKeyboard);
