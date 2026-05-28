@@ -184,8 +184,9 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       ctx.wizard.state.phoneNumber = message.contact.phone_number;
 
       await ctx.reply(
-        '📎 ارسال مدرک اقامتی:\n' +
-        'لطفاً تصویری واضح از **کارت اقامت** یا **کارت زرد سلامت** خود ارسال کنید (عکس یا فایل):',
+        '📎 **ارسال مدرک اقامتی**\n\n' +
+        'لطفاً تصویری واضح از **کارت اقامت (Residence Permit)** یا **کارت زرد سلامت (Sundhedskort)** خود ارسال کنید (عکس یا فایل).\n\n' +
+        '🔒 **نکته امنیتی:** جهت حفظ حریم خصوصی خود، پیشنهاد می‌شود قبل از ارسال تصویر، با استفاده از ابزار ادیتور تلگرام (قلم‌مو/Draw)، روی بخش **شماره CPR** و **آدرس** خود خط کشیده و آن‌ها را بپوشانید. نام و نام خانوادگی شما باید کاملاً خوانا باقی بماند.',
         Markup.keyboard([['انصراف']]).oneTime().resize()
       );
       return ctx.wizard.next();
