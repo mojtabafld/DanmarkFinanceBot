@@ -2,6 +2,7 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { verifyStartKeyboard, pendingVerificationKeyboard } from '../utils/keyboards';
+import { maskImage } from '../utils/imageMasking';
 
 interface VerifyState {
   fullName?: string;
@@ -297,7 +298,20 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
             },
           });
 
-          // 2. Format details for Admin
+          // 2. Process and mask image (CPR and Address redaction)
+          let fileIdToSave = ctx.wizard.state.documentFileId;
+          let maskedImageBuffer: Buffer | null = null;
+          
+          if (fileIdToSave) {
+            try {
+              const fileLink = await ctx.telegram.getFileLink(fileIdToSave);
+              maskedImageBuffer = await maskImage(fileLink.href);
+            } catch (err) {
+              console.error('Error masking document image:', err);
+            }
+          }
+
+          // 3. Format details for Admin
           const adminMention = from.username 
             ? `@${from.username}` 
             : `[${from.first_name}](tg://user?id=${from.id})`;
@@ -309,30 +323,53 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
             `🌍 **کشور اقامت:** ${dbUser.country}\n` +
             `📱 **شماره تلفن:** ${dbUser.phoneNumber}\n` +
             `🆔 **شناسه عددی:** \`${dbUser.telegramId}\`\n\n` +
-            `👇 تصویر مدرک پیوست شده است:`;
+            `👇 تصویر مدرک پیوست شده است (بخش‌های شناسایی و آدرس به صورت خودکار پوشانده شده‌اند):`;
 
           // Send details and photo to Admin
           const sentTextMsg = await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'Markdown' });
-          const sentPhotoMsg = await ctx.telegram.sendPhoto(
-            config.ADMIN_CHAT_ID,
-            dbUser.documentFileId!,
-            {
-              caption: `👤 مدرک هویتی ${dbUser.fullName}\nآیا این کاربر تایید شود؟`,
-              ...Markup.inlineKeyboard([
-                [
-                  Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${dbUser.id}`),
-                  Markup.button.callback('❌ رد احراز هویت', `REJECT_USER_${dbUser.id}`)
-                ]
-              ])
-            }
-          );
+          
+          let sentPhotoMsg;
+          if (maskedImageBuffer) {
+            sentPhotoMsg = await ctx.telegram.sendPhoto(
+              config.ADMIN_CHAT_ID,
+              { source: maskedImageBuffer },
+              {
+                caption: `👤 مدرک هویتی ${dbUser.fullName}\nآیا این کاربر تایید شود؟`,
+                ...Markup.inlineKeyboard([
+                  [
+                    Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${dbUser.id}`),
+                    Markup.button.callback('❌ رد احراز هویت', `REJECT_USER_${dbUser.id}`)
+                  ]
+                ])
+              }
+            );
 
-          // Update user in DB with the admin verify message IDs
+            // Extract the newly generated file_id of the uploaded masked photo
+            const newFileId = sentPhotoMsg.photo[sentPhotoMsg.photo.length - 1].file_id;
+            fileIdToSave = newFileId;
+          } else {
+            sentPhotoMsg = await ctx.telegram.sendPhoto(
+              config.ADMIN_CHAT_ID,
+              fileIdToSave!,
+              {
+                caption: `👤 مدرک هویتی ${dbUser.fullName}\nآیا این کاربر تایید شود؟`,
+                ...Markup.inlineKeyboard([
+                  [
+                    Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${dbUser.id}`),
+                    Markup.button.callback('❌ رد احراز هویت', `REJECT_USER_${dbUser.id}`)
+                  ]
+                ])
+              }
+            );
+          }
+
+          // Update user in DB with the admin verify message IDs and the final masked document File ID!
           await prisma.user.update({
             where: { id: dbUser.id },
             data: {
               adminVerifyMsgId: sentTextMsg.message_id,
-              adminVerifyPhotoId: sentPhotoMsg.message_id
+              adminVerifyPhotoId: sentPhotoMsg.message_id,
+              documentFileId: fileIdToSave
             }
           });
 

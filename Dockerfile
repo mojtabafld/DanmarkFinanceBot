@@ -19,7 +19,7 @@ RUN npm run build
 FROM node:20-alpine
 
 WORKDIR /app
-RUN apk add --no-cache openssl libc6-compat
+RUN apk add --no-cache openssl libc6-compat tesseract-ocr tesseract-ocr-data-dan tesseract-ocr-data-eng
 
 # Copy package files and install only production dependencies
 COPY package.json ./
