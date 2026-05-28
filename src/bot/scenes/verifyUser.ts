@@ -187,7 +187,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       await ctx.reply(
         '📎 **ارسال مدرک اقامتی**\n\n' +
         'لطفاً تصویری واضح از **کارت اقامت (Residence Permit)** یا **کارت زرد سلامت (Sundhedskort)** خود ارسال کنید (عکس یا فایل).\n\n' +
-        '🔒 **نکته امنیتی:** جهت حفظ حریم خصوصی خود، پیشنهاد می‌شود قبل از ارسال تصویر، با استفاده از ابزار ادیتور تلگرام (قلم‌مو/Draw)، روی بخش **شماره CPR** و **آدرس** خود خط کشیده و آن‌ها را بپوشانید. نام و نام خانوادگی شما باید کاملاً خوانا باقی بماند.',
+        '🔒 **نکته امنیتی:** ربات به طور خودکار اطلاعات حساس تصویر (مانند کد ملی/شماره CPR و آدرس) را شناسایی و پوشش می‌دهد. پیش‌نمایش تصویر مخدوش‌شده قبل از ارسال نهایی برای ادمین به شما نشان داده خواهد شد تا آن را بررسی کنید. با این وجود، در صورت تمایل می‌توانید خودتان نیز با ابزارهای ادیت تلگرام روی این بخش‌ها را بپوشانید.',
         Markup.keyboard([['انصراف']]).oneTime().resize()
       );
       return ctx.wizard.next();
@@ -208,7 +208,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
     );
   },
 
-  // Step 6: Handle Photo & Show Confirmation
+  // Step 6: Handle Photo & Show Confirmation (With Automated Masking Preview)
   async (ctx) => {
     const message = ctx.message;
     if (!message) return;
@@ -234,7 +234,35 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       return;
     }
 
-    ctx.wizard.state.documentFileId = fileId;
+    const processingMsg = await ctx.reply('⏳ در حال پردازش تصویر و مخدوش‌سازی خودکار اطلاعات حساس (CPR و آدرس)... لطفاً چند لحظه صبر کنید.');
+
+    let finalFileId = fileId;
+    try {
+      const fileLink = await ctx.telegram.getFileLink(fileId);
+      const maskedBuffer = await maskImage(fileLink.href);
+      
+      const previewPhoto = await ctx.replyWithPhoto(
+        { source: maskedBuffer },
+        {
+          caption: '🛡️ **پیش‌نمایش تصویر مخدوش‌شده**\n\n' +
+                   'بخش‌های حساس مدرک شما (مانند شماره شناسایی/CPR و آدرس) به صورت خودکار شناسایی و با کادرهای مشکی پوشانده شدند.\n' +
+                   'این دقیقاً همان تصویری است که ادمین مشاهده خواهد کرد.'
+        }
+      );
+
+      if (previewPhoto && previewPhoto.photo) {
+        finalFileId = previewPhoto.photo[previewPhoto.photo.length - 1].file_id;
+      }
+    } catch (err) {
+      console.error('Error during automatic image masking in Step 6:', err);
+      await ctx.reply('⚠️ پردازش پیشرفته تصویر با خطا مواجه شد. مدرک شما بدون مخدوش‌سازی خودکار ثبت گردید.');
+    } finally {
+      try {
+        await ctx.telegram.deleteMessage(ctx.chat!.id, processingMsg.message_id);
+      } catch {}
+    }
+
+    ctx.wizard.state.documentFileId = finalFileId;
 
     const summaryText =
       `📋 **پیش‌نویس اطلاعات احراز هویت شما:**\n\n` +
@@ -242,7 +270,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       `🔹 **کشور محل اقامت:** ${ctx.wizard.state.country}\n` +
       `🔹 **شماره تماس:** ${ctx.wizard.state.phoneNumber}\n` +
       `🔹 **نام کاربری تلگرام:** @${ctx.from?.username}\n\n` +
-      `❓ آیا صحت این اطلاعات را تایید می‌کنید؟ در صورت تایید مدارک برای مدیریت ارسال خواهد شد.`;
+      `❓ آیا صحت این اطلاعات و مدرک پیش‌نمایش شده را تایید می‌کنید؟ در صورت تایید، درخواست برای مدیریت ارسال خواهد شد.`;
 
     await ctx.replyWithMarkdown(
       summaryText,
@@ -272,6 +300,8 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
         if (!from) return ctx.scene.leave();
 
         try {
+          const fileIdToSave = ctx.wizard.state.documentFileId;
+
           // 1. Save user registration info
           const dbUser = await prisma.user.upsert({
             where: { telegramId: from.id.toString() },
@@ -283,7 +313,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
               fullName: ctx.wizard.state.fullName,
               country: ctx.wizard.state.country,
               phoneNumber: ctx.wizard.state.phoneNumber,
-              documentFileId: ctx.wizard.state.documentFileId,
+              documentFileId: fileIdToSave,
             },
             create: {
               telegramId: from.id.toString(),
@@ -294,24 +324,11 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
               fullName: ctx.wizard.state.fullName,
               country: ctx.wizard.state.country,
               phoneNumber: ctx.wizard.state.phoneNumber,
-              documentFileId: ctx.wizard.state.documentFileId,
+              documentFileId: fileIdToSave,
             },
           });
 
-          // 2. Process and mask image (CPR and Address redaction)
-          let fileIdToSave = ctx.wizard.state.documentFileId;
-          let maskedImageBuffer: Buffer | null = null;
-          
-          if (fileIdToSave) {
-            try {
-              const fileLink = await ctx.telegram.getFileLink(fileIdToSave);
-              maskedImageBuffer = await maskImage(fileLink.href);
-            } catch (err) {
-              console.error('Error masking document image:', err);
-            }
-          }
-
-          // 3. Format details for Admin
+          // 2. Format details for Admin
           const adminMention = from.username 
             ? `@${from.username}` 
             : `[${from.first_name}](tg://user?id=${from.id})`;
@@ -325,14 +342,14 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
             `🆔 **شناسه عددی:** \`${dbUser.telegramId}\`\n\n` +
             `👇 تصویر مدرک پیوست شده است (بخش‌های شناسایی و آدرس به صورت خودکار پوشانده شده‌اند):`;
 
-          // Send details and photo to Admin
+          // Send details and photo to Admin (using the already uploaded masked photo)
           const sentTextMsg = await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'Markdown' });
           
           let sentPhotoMsg;
-          if (maskedImageBuffer) {
+          if (fileIdToSave) {
             sentPhotoMsg = await ctx.telegram.sendPhoto(
               config.ADMIN_CHAT_ID,
-              { source: maskedImageBuffer },
+              fileIdToSave,
               {
                 caption: `👤 مدرک هویتی ${dbUser.fullName}\nآیا این کاربر تایید شود؟`,
                 ...Markup.inlineKeyboard([
@@ -343,33 +360,16 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
                 ])
               }
             );
-
-            // Extract the newly generated file_id of the uploaded masked photo
-            const newFileId = sentPhotoMsg.photo[sentPhotoMsg.photo.length - 1].file_id;
-            fileIdToSave = newFileId;
           } else {
-            sentPhotoMsg = await ctx.telegram.sendPhoto(
-              config.ADMIN_CHAT_ID,
-              fileIdToSave!,
-              {
-                caption: `👤 مدرک هویتی ${dbUser.fullName}\nآیا این کاربر تایید شود؟`,
-                ...Markup.inlineKeyboard([
-                  [
-                    Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${dbUser.id}`),
-                    Markup.button.callback('❌ رد احراز هویت', `REJECT_USER_${dbUser.id}`)
-                  ]
-                ])
-              }
-            );
+            throw new Error('No document file ID stored in wizard state.');
           }
 
-          // Update user in DB with the admin verify message IDs and the final masked document File ID!
+          // Update user in DB with the admin verify message IDs
           await prisma.user.update({
             where: { id: dbUser.id },
             data: {
               adminVerifyMsgId: sentTextMsg.message_id,
               adminVerifyPhotoId: sentPhotoMsg.message_id,
-              documentFileId: fileIdToSave
             }
           });
 
