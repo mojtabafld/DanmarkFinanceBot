@@ -1,11 +1,47 @@
 import { Context, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
+import { config } from '../../config';
+import { formatToShamsi } from '../utils/groupMessage';
 
 /**
  * Handles deep links coming from group inline buttons.
  * E.g., /start deal_123
  */
 export async function handleDeepLink(ctx: Context, payload: string) {
+  if (payload === 'active_ads') {
+    try {
+      const activeProposals = await prisma.proposal.findMany({
+        where: { status: 'PENDING' },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      if (activeProposals.length === 0) {
+        await ctx.reply('⚠️ در حال حاضر هیچ حواله فعال و آماده مبادله‌ای در سیستم وجود ندارد.');
+        return;
+      }
+
+      let text = `📊 <b>لیست مبادلات فعال:</b>\n\n`;
+      activeProposals.forEach(prop => {
+        const typeText = prop.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
+        const cleanChatId = config.GROUP_CHAT_ID.toString().startsWith('-100')
+          ? config.GROUP_CHAT_ID.toString().substring(4)
+          : config.GROUP_CHAT_ID.toString();
+          
+        const link = prop.groupMessageId 
+          ? `https://t.me/c/${cleanChatId}/${prop.groupMessageId}`
+          : `https://t.me/${config.BOT_USERNAME}`;
+
+        text += `🔹 <a href="${link}">حواله #${prop.code ?? prop.id}</a> | <b>${typeText}</b> | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${prop.currency} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n`;
+      });
+
+      await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+    } catch (err) {
+      console.error('Error listing active ads in deep link:', err);
+      await ctx.reply('❌ خطا در دریافت لیست مبادلات فعال.');
+    }
+    return;
+  }
+
   if (!payload.startsWith('deal_')) {
     await ctx.reply('⚠️ لینک معتبر نیست.');
     return;

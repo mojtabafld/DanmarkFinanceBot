@@ -2722,7 +2722,7 @@ bot.on('chat_member', async (ctx) => {
   const chat = ctx.chat;
 
   // Only care about updates from our designated group
-  if (chat.id !== config.GROUP_CHAT_ID) return;
+  if (chat.id.toString() !== config.GROUP_CHAT_ID.toString()) return;
 
   const newMember = chatMember.new_chat_member;
   const status = newMember.status;
@@ -2741,12 +2741,71 @@ bot.on('chat_member', async (ctx) => {
 
       // Send the main keyboard and welcome message ONLY if they are already APPROVED in DB
       if (dbUser && dbUser.verificationStatus === 'APPROVED') {
+        // Fetch active proposals to show in PM
+        const activeProposals = await prisma.proposal.findMany({
+          where: { status: 'PENDING' },
+          orderBy: { createdAt: 'desc' }
+        });
+
+        let adsMsg = '';
+        if (activeProposals.length > 0) {
+          adsMsg = `\n\n📥 **لیست آگهی‌های فعال در حال حاضر:**\n\n`;
+          activeProposals.forEach(prop => {
+            const typeText = prop.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
+            const cleanChatId = config.GROUP_CHAT_ID.toString().startsWith('-100')
+              ? config.GROUP_CHAT_ID.toString().substring(4)
+              : config.GROUP_CHAT_ID.toString();
+              
+            const link = prop.groupMessageId 
+              ? `https://t.me/c/${cleanChatId}/${prop.groupMessageId}`
+              : `https://t.me/${config.BOT_USERNAME}`;
+
+            adsMsg += `🔹 <a href="${link}">حواله #${prop.code ?? prop.id}</a> | <b>${typeText}</b> | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${prop.currency} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n`;
+          });
+        } else {
+          adsMsg = `\n\n⚠️ در حال حاضر هیچ آگهی فعالی ثبت نشده است.`;
+        }
+
         await ctx.telegram.sendMessage(
           user.id,
           `🎉 **عضویت شما در گروه معاملاتی دانمارک با موفقیت تایید شد!**\n\n` +
-          `اکنون می‌توانید از منوی دکمه‌های زیر برای ثبت پیشنهاد جدید خرید یا فروش و مدیریت پیشنهادهای خود استفاده کنید:`,
-          mainKeyboard
-        );
+          `اکنون می‌توانید از منوی دکمه‌های زیر برای ثبت پیشنهاد جدید خرید یا فروش و مدیریت پیشنهادهای خود استفاده کنید:${adsMsg}`,
+          {
+            parse_mode: 'HTML',
+            ...mainKeyboard,
+            link_preview_options: { is_disabled: true }
+          }
+        ).catch(err => console.error('Failed to send private welcome to new group member:', err));
+
+        // Post a welcoming notice in the group since they can't see hidden history
+        const userMention = user.username 
+          ? `@${user.username}` 
+          : `<a href="tg://user?id=${user.id}">${user.first_name}</a>`;
+
+        const groupWelcomeMsg = `🌸 <b>کاربر گرامی ${userMention} به گروه معاملاتی خوش آمدید!</b>\n\n` +
+                                `از آنجا که تاریخچه پیام‌های قبلی گروه برای اعضای جدید پنهان است، جهت مشاهده تمامی آگهی‌های فعال فعلی دکمه زیر را کلیک کنید:`;
+
+        const sentGroupWelcome = await ctx.telegram.sendMessage(
+          config.GROUP_CHAT_ID,
+          groupWelcomeMsg,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.url('📥 مشاهده آگهی‌های فعال', `https://t.me/${config.BOT_USERNAME}?start=active_ads`)]
+            ])
+          }
+        ).catch(err => console.error('Failed to send group welcome message:', err));
+
+        // Automatically delete the welcome message in group after 2 minutes to keep chat clean
+        if (sentGroupWelcome) {
+          setTimeout(async () => {
+            try {
+              await ctx.telegram.deleteMessage(config.GROUP_CHAT_ID, sentGroupWelcome.message_id);
+            } catch (err) {
+              console.error('Failed to auto-delete group welcome message:', err);
+            }
+          }, 120000); // 120000ms = 2 minutes
+        }
       }
     } catch (error) {
       console.error('Error handling chat_member join event:', error);
