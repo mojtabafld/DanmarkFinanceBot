@@ -150,6 +150,11 @@ bot.start(async (ctx) => {
         `احراز هویت شما قبلا تایید شده است. می‌توانید از دکمه‌های زیر استفاده کنید:`,
         mainKeyboard
       );
+    } else if (dbUser.verificationStatus === 'PENDING') {
+      await ctx.reply(
+        '⏳ مدارک احراز هویت شما در حال بررسی توسط مدیریت است. لطفا منتظر بمانید.',
+        pendingVerificationKeyboard
+      );
     } else if (dbUser.verificationStatus === 'DEACTIVATED') {
       await ctx.reply(
         `⚠️ حساب کاربری شما موقتاً غیرفعال شده است. جهت فعال‌سازی مجدد حساب کاربری و ورود دوباره به گروه، روی دکمه زیر کلیک کنید:`,

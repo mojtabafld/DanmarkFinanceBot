@@ -1,7 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
-import { verifyStartKeyboard } from '../utils/keyboards';
+import { verifyStartKeyboard, pendingVerificationKeyboard } from '../utils/keyboards';
 
 interface VerifyState {
   fullName?: string;
@@ -34,6 +34,27 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
         verifyStartKeyboard
       );
       return ctx.scene.leave();
+    }
+
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { telegramId: ctx.from.id.toString() }
+      });
+
+      if (dbUser?.verificationStatus === 'PENDING') {
+        await ctx.reply(
+          '⏳ مدارک احراز هویت شما در حال بررسی توسط مدیریت است. لطفا منتظر بمانید.',
+          pendingVerificationKeyboard
+        );
+        return ctx.scene.leave();
+      }
+
+      if (dbUser?.verificationStatus === 'APPROVED') {
+        await ctx.reply('✅ احراز هویت شما قبلا تایید شده است.', verifyStartKeyboard);
+        return ctx.scene.leave();
+      }
+    } catch (err) {
+      console.error('Error checking verification status in wizard start:', err);
     }
 
     await ctx.reply(
@@ -308,7 +329,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
           await ctx.reply(
             '✅ مدارک شما با موفقیت برای مدیریت ارسال شد.\n' +
             '⏳ درخواست شما پس از بررسی توسط ادمین پاسخ داده خواهد شد و نتیجه از همین‌جا اطلاع‌رسانی می‌شود.',
-            verifyStartKeyboard
+            pendingVerificationKeyboard
           );
 
         } catch (error) {
