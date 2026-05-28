@@ -20,6 +20,8 @@ model User {
   documentFileId     String?
   rejectReason       String?
   dailyProposalLimit Int        @default(5)
+  adminVerifyMsgId   Int?
+  adminVerifyPhotoId Int?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
   proposals          Proposal[] @relation("UserProposals")

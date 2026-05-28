@@ -234,6 +234,18 @@ bot.hears('❌ لغو ارسال اطلاعات', async (ctx) => {
       return;
     }
 
+    // Delete verification messages sent to admin
+    if (dbUser.adminVerifyMsgId) {
+      await ctx.telegram.deleteMessage(config.ADMIN_CHAT_ID, dbUser.adminVerifyMsgId).catch(err => {
+        console.error('Failed to delete admin text verification message:', err);
+      });
+    }
+    if (dbUser.adminVerifyPhotoId) {
+      await ctx.telegram.deleteMessage(config.ADMIN_CHAT_ID, dbUser.adminVerifyPhotoId).catch(err => {
+        console.error('Failed to delete admin photo verification message:', err);
+      });
+    }
+
     // Reset user verification status and clear submitted info
     await prisma.user.update({
       where: { telegramId: from.id.toString() },
@@ -243,7 +255,9 @@ bot.hears('❌ لغو ارسال اطلاعات', async (ctx) => {
         fullName: null,
         country: null,
         phoneNumber: null,
-        rejectReason: null
+        rejectReason: null,
+        adminVerifyMsgId: null,
+        adminVerifyPhotoId: null
       }
     });
 

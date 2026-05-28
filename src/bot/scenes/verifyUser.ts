@@ -311,8 +311,8 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
             `👇 تصویر مدرک پیوست شده است:`;
 
           // Send details and photo to Admin
-          await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'Markdown' });
-          await ctx.telegram.sendPhoto(
+          const sentTextMsg = await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'Markdown' });
+          const sentPhotoMsg = await ctx.telegram.sendPhoto(
             config.ADMIN_CHAT_ID,
             dbUser.documentFileId!,
             {
@@ -325,6 +325,15 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
               ])
             }
           );
+
+          // Update user in DB with the admin verify message IDs
+          await prisma.user.update({
+            where: { id: dbUser.id },
+            data: {
+              adminVerifyMsgId: sentTextMsg.message_id,
+              adminVerifyPhotoId: sentPhotoMsg.message_id
+            }
+          });
 
           await ctx.reply(
             '✅ مدارک شما با موفقیت برای مدیریت ارسال شد.\n' +
