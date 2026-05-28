@@ -46,9 +46,9 @@ export const requestLimitIncreaseWizard = new Scenes.WizardScene<MyLimitContext>
 
     await ctx.reply(
       `📈 **درخواست افزایش سقف آگهی روزانه**\n\n` +
-      `درخواست شما ثبت شد. در صورتی که می‌خواهید پیغامی برای ادمین بفرستید، متن خود را وارد کنید و روی دکمه ارسال ضربه بزنید. در غیر این صورت می‌توانید دکمه «ارسال درخواست افزایش سقف ثبت آگهی روزانه» را انتخاب کنید:`,
+      `درخواست شما ثبت شد. در صورتی که می‌خواهید پیغامی برای ادمین بفرستید، متن خود را وارد کنید و روی دکمه ارسال ضربه بزنید. در غیر این صورت می‌توانید دکمه «ارسال درخواست» را انتخاب کنید:`,
       Markup.keyboard([
-        ['ارسال درخواست افزایش سقف ثبت آگهی روزانه'],
+        ['ارسال درخواست'],
         ['انصراف']
       ]).resize().oneTime()
     );
@@ -65,7 +65,7 @@ export const requestLimitIncreaseWizard = new Scenes.WizardScene<MyLimitContext>
         return ctx.scene.leave();
       }
 
-      const userMessage = text === 'ارسال درخواست افزایش سقف ثبت آگهی روزانه' ? 'بدون پیام' : text;
+      const userMessage = text === 'ارسال درخواست' ? 'بدون پیام' : text;
       const from = ctx.from;
       if (!from) return ctx.scene.leave();
 

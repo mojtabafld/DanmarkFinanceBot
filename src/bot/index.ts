@@ -1,4 +1,5 @@
 import { Telegraf, Scenes, session, Markup } from 'telegraf';
+import axios from 'axios';
 import { config } from '../config';
 import { prisma } from '../database/db';
 import { createProposalWizard, CREATE_PROPOSAL_SCENE_ID, MyWizardContext } from './scenes/createProposal';
@@ -404,8 +405,64 @@ bot.hears('📊 لیست مبادلات فعال', checkVerified, async (ctx) =>
   }
 });
 
+// Helper function to extract price from tgju HTML
+function extractLivePrice(html: string, marketRow: string): number | null {
+  const regex = new RegExp(`<tr[^>]*data-market-row=["']${marketRow}["'][^>]*>`, 'i');
+  const match = html.match(regex);
+  if (!match) return null;
+  
+  const trTag = match[0];
+  const priceRegex = /data-price=["']([^"']+)["']/i;
+  const priceMatch = trTag.match(priceRegex);
+  if (!priceMatch) return null;
+  
+  const rialPrice = parseFloat(priceMatch[1].replace(/,/g, ''));
+  if (isNaN(rialPrice)) return null;
+  return Math.round(rialPrice / 10); // Convert Rial to Toman
+}
+
 bot.hears('💵 نرخ لحظه‌ای ارز', checkVerified, async (ctx) => {
-  await ctx.reply('💵 این بخش به زودی فعال خواهد شد و نرخ‌های لحظه‌ای ارز را نمایش خواهد داد.', mainKeyboard);
+  const loadingMsg = await ctx.reply('⏳ در حال دریافت آخرین نرخ‌های لحظه‌ای ارز از منابع معتبر... لطفاً چند لحظه صبر کنید.');
+
+  try {
+    const response = await axios.get('https://www.tgju.org/', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      timeout: 8000
+    });
+    
+    const html = response.data;
+    const usd = extractLivePrice(html, 'price_dollar_rl');
+    const eur = extractLivePrice(html, 'price_eur');
+    const dkk = extractLivePrice(html, 'price_dkk');
+    
+    if (!usd || !eur || !dkk) {
+      throw new Error('Failed to parse currency prices from TGJU');
+    }
+    
+    const timeStr = formatToShamsi(new Date());
+    
+    const msgText = 
+      `💵 **نرخ‌های لحظه‌ای ارز آزاد (به تومان):**\n\n` +
+      `🇺🇸 **دلار آمریکا:** <code>${usd.toLocaleString('fa-IR')}</code> تومان\n` +
+      `🇪🇺 **یورو:** <code>${eur.toLocaleString('fa-IR')}</code> تومان\n` +
+      `🇩🇰 **کرون دانمارک:** <code>${dkk.toLocaleString('fa-IR')}</code> تومان\n\n` +
+      `📅 **بروزرسانی:** ${timeStr}\n` +
+      `🔗 منبع: شبکه طلا، جواهر و ارز ایران`;
+      
+    await ctx.telegram.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
+    await ctx.replyWithHTML(msgText, mainKeyboard);
+
+  } catch (err) {
+    console.error('Error fetching live rates:', err);
+    await ctx.telegram.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
+    await ctx.reply(
+      '❌ در حال حاضر ارتباط با مرجع قیمت‌گذاری برقرار نشد.\n' +
+      'لطفاً دقایقی دیگر مجدداً تلاش فرمایید.',
+      mainKeyboard
+    );
+  }
 });
 
 bot.hears('📜 شرایط تبادل ارز', checkVerified, async (ctx) => {
