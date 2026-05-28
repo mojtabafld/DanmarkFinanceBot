@@ -134,41 +134,20 @@ bot.start(async (ctx) => {
       },
     });
 
-    if (dbUser.verificationStatus === 'UNVERIFIED') {
+    if (dbUser.verificationStatus === 'APPROVED') {
+      await ctx.reply(
+        `سلام ${from.first_name} عزیز! 🌸\n` +
+        `احراز هویت شما قبلا تایید شده است. می‌توانید از دکمه‌های زیر استفاده کنید:`,
+        mainKeyboard
+      );
+    } else {
       await ctx.reply(
         `سلام ${from.first_name} عزیز! 🌸\n` +
         `به ربات خرید و فروش ارز خوش آمدید.\n\n` +
         `⚠️ برای شروع استفاده از ربات و عضویت در گروه معاملاتی، ابتدا باید احراز هویت خود را تکمیل کنید.`,
         Markup.keyboard([['🔐 شروع احراز هویت']]).resize()
       );
-      return;
     }
-
-    if (dbUser.verificationStatus === 'PENDING') {
-      await ctx.reply(
-        `⏳ مدارک احراز هویت شما قبلاً ارسال شده و در حال بررسی توسط مدیریت است.\n` +
-        `پس از تایید ادمین، لینک ورود به گروه معاملاتی برای شما ارسال خواهد شد.`,
-        pendingVerificationKeyboard
-      );
-      return;
-    }
-
-    if (dbUser.verificationStatus === 'REJECTED') {
-      await ctx.reply(
-        `❌ متاسفانه درخواست احراز هویت شما مورد تایید قرار نگرفت.\n` +
-        (dbUser.rejectReason ? `💬 علت رد درخواست: ${dbUser.rejectReason}\n\n` : '\n') +
-        `می‌توانید مجدداً تلاش کنید:`,
-        Markup.keyboard([['🔐 شروع احراز هویت']]).resize()
-      );
-      return;
-    }
-
-    // Approved user
-    await ctx.reply(
-      `سلام ${from.first_name} عزیز! 🌸\n` +
-      `احراز هویت شما قبلا تایید شده است. می‌توانید از دکمه‌های زیر استفاده کنید:`,
-      mainKeyboard
-    );
 
   } catch (error) {
     console.error('Error in start command:', error);
