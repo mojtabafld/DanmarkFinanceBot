@@ -120,7 +120,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
         return; // Wait for typing in this step
       }
 
-      // If they chose DK or IR, ask for phone directly and jump to Step 5
+      // If they chose DK or IR, ask for phone directly and jump to Step 4 (Index 3)
       await ctx.reply(
         '📱 اشتراک‌گذاری شماره تماس:\n' +
         'لطفاً از دکمه زیر جهت ارسال شماره تلفن خود استفاده کنید تا هویت شما تایید شود.',
@@ -128,12 +128,11 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
           [Markup.button.contactRequest('📱 اشتراک‌گذاری شماره تماس')]
         ]).oneTime().resize()
       );
-      // Move to Step 5 (we skip Step 4 which is the custom country entry)
-      return ctx.wizard.selectStep(4);
+      return ctx.wizard.selectStep(3);
     }
 
     // If custom country was requested and they typed it
-    if (ctx.wizard.state.needsCustomCountry && 'text' in ctx.message!) {
+    if (ctx.wizard.state.needsCustomCountry && ctx.message && 'text' in ctx.message) {
       const text = ctx.message.text.trim();
       if (text === 'انصراف' || text === '/cancel') {
         await ctx.reply('❌ احراز هویت لغو شد.', verifyStartKeyboard);
@@ -150,35 +149,13 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
           [Markup.button.contactRequest('📱 اشتراک‌گذاری شماره تماس')]
         ]).oneTime().resize()
       );
-      return ctx.wizard.next(); // Go to Step 4 (which is index 3)
+      return ctx.wizard.selectStep(3); // Go to Step 4 (which is index 3)
     }
 
     await ctx.reply('لطفاً یکی از گزینه‌های شیشه‌ای بالا را انتخاب کنید.');
   },
 
-  // Step 4: Fallback for custom country typing step
-  async (ctx) => {
-    if ('text' in ctx.message!) {
-      const text = ctx.message.text.trim();
-      if (text === 'انصراف' || text === '/cancel') {
-        await ctx.reply('❌ احراز هویت لغو شد.', verifyStartKeyboard);
-        return ctx.scene.leave();
-      }
-
-      ctx.wizard.state.country = text;
-      await ctx.reply(
-        '📱 اشتراک‌گذاری شماره تماس:\n' +
-        'لطفاً از دکمه زیر جهت ارسال شماره تلفن خود استفاده کنید تا هویت شما تایید شود.',
-        Markup.keyboard([
-          [Markup.button.contactRequest('📱 اشتراک‌گذاری شماره تماس')]
-        ]).oneTime().resize()
-      );
-      return ctx.wizard.next();
-    }
-    await ctx.reply('لطفاً نام کشور را بنویسید.');
-  },
-
-  // Step 5: Handle Phone Contact & Ask for Photo
+  // Step 4: Handle Phone Contact & Ask for Photo
   async (ctx) => {
     const message = ctx.message;
     if (message && 'contact' in message) {
