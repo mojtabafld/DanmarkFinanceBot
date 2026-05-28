@@ -1,3 +1,4 @@
+// Trigger redeployment on DigitalOcean App Platform
 import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
