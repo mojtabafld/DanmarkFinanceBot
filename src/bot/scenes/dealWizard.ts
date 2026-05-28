@@ -22,7 +22,7 @@ export interface MyDealWizardContext extends Scenes.WizardContext {
 export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
   ACCEPT_DEAL_SCENE_ID,
   
-  // Step 1: Prompt for quantity (Full vs. Custom)
+  // Step 1: Prompt for quantity (Full vs. Custom) or show final confirmation for DIRECT
   async (ctx) => {
     const state = ctx.scene.state as DealWizardState;
     ctx.wizard.state.proposalId = state.proposalId;
@@ -67,24 +67,52 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
         return ctx.scene.leave();
       }
       
-      const promptText = 
-        `📋 **درخواست معامله برای پیشنهاد #${proposal.id}**\n\n` +
-        `🔹 **نوع تراکنش:** ${proposal.type === 'BUY' ? '🟢 خرید ارز' : '🔴 فروش ارز'}\n` +
-        `🔹 **ارز:** <code>${proposal.currency}</code>\n` +
-        `🔹 **مقدار موجود:** <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
-        `🔹 **قیمت پایه واحد:** <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n\n` +
-        `❓ آیا مایلید کل مقدار موجود (<code>${proposal.amount.toLocaleString('fa-IR')}</code>) را معامله کنید یا مقدار مشخصی از آن را؟`;
+      if (state.mode === 'DIRECT') {
+        const total = proposal.amount * proposal.price;
+        const detailText =
+          `📝 **تایید نهایی معامله (کل مقدار با قیمت اصلی):**\n\n` +
+          `🔹 **نوع تراکنش:** ${proposal.type === 'BUY' ? '🟢 خرید ارز' : '🔴 فروش ارز'}\n` +
+          `🔹 **ارز:** <code>${proposal.currency}</code>\n` +
+          `🔹 **مقدار معامله:** <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
+          `🔹 **قیمت واحد:** <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
+          `🔹 **مبلغ کل معامله:** <code>${total.toLocaleString('fa-IR')}</code> تومان\n` +
+          `👤 **ثبت‌کننده آگهی:** ${proposal.creator.username ? '@' + proposal.creator.username : proposal.creator.firstName}\n\n` +
+          `❓ آیا این معامله را تایید و ارسال می‌کنید؟\n\n` +
+          `⚠️ با تایید معامله، معامله ثبت شده و پس از تایید اولیه ادمین، فلو پرداخت آغاز خواهد شد.`;
+
+        await ctx.reply(detailText, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback('✅ تایید و ارسال معامله', 'CONFIRM_DIRECT_DEAL'),
+              Markup.button.callback('❌ انصراف', 'CANCEL_DEAL')
+            ]
+          ])
+        });
         
-      await ctx.reply(promptText, {
-        parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback(`✅ کل مقدار موجود (${proposal.amount.toLocaleString('fa-IR')})`, 'QTY_FULL')],
-          [Markup.button.callback('🔢 درخواست مقدار مشخص', 'QTY_PARTIAL')],
-          [Markup.button.callback('❌ انصراف', 'CANCEL_DEAL')]
-        ])
-      });
-      
-      return ctx.wizard.next();
+        ctx.wizard.state.amount = proposal.amount;
+        ctx.wizard.state.price = proposal.price;
+        return ctx.wizard.next();
+      } else {
+        const promptText = 
+          `📋 **درخواست معامله برای پیشنهاد #${proposal.id}**\n\n` +
+          `🔹 **نوع تراکنش:** ${proposal.type === 'BUY' ? '🟢 خرید ارز' : '🔴 فروش ارز'}\n` +
+          `🔹 **ارز:** <code>${proposal.currency}</code>\n` +
+          `🔹 **مقدار موجود:** <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
+          `🔹 **قیمت پایه واحد:** <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n\n` +
+          `❓ آیا مایلید کل مقدار موجود (<code>${proposal.amount.toLocaleString('fa-IR')}</code>) را معامله کنید یا مقدار مشخصی از آن را؟`;
+          
+        await ctx.reply(promptText, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback(`✅ کل مقدار موجود (${proposal.amount.toLocaleString('fa-IR')})`, 'QTY_FULL')],
+            [Markup.button.callback('🔢 درخواست مقدار مشخص', 'QTY_PARTIAL')],
+            [Markup.button.callback('❌ انصراف', 'CANCEL_DEAL')]
+          ])
+        });
+        
+        return ctx.wizard.next();
+      }
       
     } catch (err) {
       console.error('Error in deal wizard step 1:', err);
@@ -93,9 +121,10 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
     }
   },
   
-  // Step 2: Handle quantity selection and prompt/receive custom quantity
+  // Step 2: Handle quantity selection / custom prompt or direct deal confirmation
   async (ctx) => {
     const proposalId = ctx.wizard.state.proposalId;
+    const mode = ctx.wizard.state.mode;
     if (!proposalId) {
       await ctx.reply('❌ اطلاعات پیشنهاد نامعتبر است.', mainKeyboard);
       return ctx.scene.leave();
@@ -117,6 +146,15 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
       if (data === 'CANCEL_DEAL') {
         await ctx.reply('❌ عملیات لغو شد.', mainKeyboard);
         return ctx.scene.leave();
+      }
+
+      if (data === 'CONFIRM_DIRECT_DEAL') {
+        if (mode === 'DIRECT') {
+          ctx.wizard.state.amount = proposal.amount;
+          // Jump directly to Step 3 (index 2 in wizard steps)
+          ctx.wizard.selectStep(2);
+          return (ctx.wizard as any).steps[2](ctx);
+        }
       }
       
       if (data === 'QTY_FULL') {
@@ -141,6 +179,11 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
       if (text === '❌ انصراف' || text === '/cancel') {
         await ctx.reply('❌ عملیات لغو شد.', mainKeyboard);
         return ctx.scene.leave();
+      }
+
+      if (mode === 'DIRECT') {
+        await ctx.reply('لطفاً یکی از گزینه‌های بالا را انتخاب کنید.');
+        return;
       }
       
       const amount = parseFloat(text.replace(/,/g, ''));
