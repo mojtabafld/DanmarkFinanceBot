@@ -274,6 +274,53 @@ export const adminRejectUserWizard = new Scenes.WizardScene<MyRejectUserContext>
     if (ctx.message && 'text' in ctx.message) {
       const reason = ctx.message.text.trim();
       if (reason === '❌ انصراف' || reason === '/cancel') {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: userId }
+          });
+          if (dbUser && dbUser.verificationStatus === 'PENDING') {
+            const userMention = dbUser.username 
+              ? `@${dbUser.username}` 
+              : `<a href="tg://user?id=${dbUser.telegramId}">${dbUser.firstName}</a>`;
+
+            const adminMsg =
+              `🔔 <b>درخواست احراز هویت جدید</b>\n\n` +
+              `👤 <b>کاربر:</b> ${userMention}\n` +
+              `📝 **نام کامل:** ${dbUser.fullName}\n` +
+              `🌍 **کشور اقامت:** ${dbUser.country}\n` +
+              `📱 **شماره تلفن:** ${dbUser.phoneNumber}\n` +
+              `🆔 **شناسه عددی:** \`${dbUser.telegramId}\`\n\n` +
+              `👇 تصویر مدرک پیوست شده است:`;
+
+            const sentTextMsg = await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'HTML' });
+            
+            const sentPhotoMsg = await ctx.telegram.sendPhoto(
+              config.ADMIN_CHAT_ID,
+              dbUser.documentFileId!,
+              {
+                caption: `👤 مدرک هویتی ${dbUser.fullName}\nآیا این کاربر تایید شود؟`,
+                ...Markup.inlineKeyboard([
+                  [
+                    Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${dbUser.id}`),
+                    Markup.button.callback('❌ رد احراز هویت', `REJECT_USER_${dbUser.id}`)
+                  ]
+                ])
+              }
+            );
+
+            // Update the message IDs in DB
+            await prisma.user.update({
+              where: { id: dbUser.id },
+              data: {
+                adminVerifyMsgId: sentTextMsg.message_id,
+                adminVerifyPhotoId: sentPhotoMsg.message_id
+              }
+            });
+          }
+        } catch (err) {
+          console.error('Error re-sending verification info to admin on cancel:', err);
+        }
+
         await ctx.reply('❌ عملیات رد درخواست لغو شد.', mainKeyboard);
         return ctx.scene.leave();
       }
