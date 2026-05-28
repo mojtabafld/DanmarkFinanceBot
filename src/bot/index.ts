@@ -1211,6 +1211,7 @@ bot.on('callback_query', async (ctx) => {
         let backTarget = 'ADMIN_PROP_MNG';
         if (prop.status === 'PENDING') backTarget = 'ADMIN_LIST_PROPOSALS';
         else if (prop.status === 'PENDING_APPROVAL') backTarget = 'ADMIN_LIST_PENDING_APPROVAL';
+        else if (prop.status === 'COMPLETED' || prop.status === 'CANCELLED') backTarget = 'ADMIN_LIST_ENDED_PROPOSALS';
 
         buttons.push([
           Markup.button.callback('👤 پرونده کاربر ثبت‌کننده', `ADMIN_USER_VIEW_${prop.creator.id}`),
@@ -1377,6 +1378,9 @@ bot.on('callback_query', async (ctx) => {
           Markup.button.callback('📋 لیست آگهی‌های فعال', 'ADMIN_LIST_PROPOSALS'),
           Markup.button.callback('⏳ در انتظار تایید ادمین', 'ADMIN_LIST_PENDING_APPROVAL')
         ],
+        [
+          Markup.button.callback('🗄 آگهی‌های پایان‌یافته (آرشیو)', 'ADMIN_LIST_ENDED_PROPOSALS')
+        ],
         [Markup.button.callback('🔙 بازگشت به منوی اصلی', 'ADMIN_MAIN_MENU')]
       ]);
 
@@ -1466,6 +1470,80 @@ bot.on('callback_query', async (ctx) => {
         }
       } catch (error) {
         console.error('Error listing pending approval proposals:', error);
+      }
+      return;
+    }
+
+    // 25. Admin List Ended/Archived Proposals (Paginated)
+    if (data === 'ADMIN_LIST_ENDED_PROPOSALS' || data.startsWith('ADMIN_LIST_END_PROP_')) {
+      await ctx.answerCbQuery();
+      const page = data.startsWith('ADMIN_LIST_END_PROP_') ? parseInt(data.replace('ADMIN_LIST_END_PROP_', ''), 10) : 0;
+      const pageSize = 10;
+
+      try {
+        const total = await prisma.proposal.count({
+          where: { status: { in: ['COMPLETED', 'CANCELLED'] } }
+        });
+        const props = await prisma.proposal.findMany({
+          where: { status: { in: ['COMPLETED', 'CANCELLED'] } },
+          skip: page * pageSize,
+          take: pageSize,
+          orderBy: { updatedAt: 'desc' },
+          include: { creator: true }
+        });
+
+        const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
+
+        if (props.length === 0 && page === 0) {
+          const emptyText = '🗄 هیچ آگهی پایان‌یافته‌ای در سیستم یافت نشد.';
+          const emptyMarkup = Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت', 'ADMIN_PROP_MNG')]]);
+          if (hasPhoto) {
+            await ctx.deleteMessage().catch(() => {});
+            await ctx.reply(emptyText, emptyMarkup);
+          } else {
+            await ctx.editMessageText(emptyText, emptyMarkup).catch(() => {});
+          }
+          return;
+        }
+
+        const buttons = props.map(p => [
+          Markup.button.callback(
+            `[${p.status === 'COMPLETED' ? '✅ موفق' : '❌ لغو'}] ${p.amount.toLocaleString('fa-IR')} ${p.currency} (توسط ${p.creator.fullName || p.creator.firstName})`,
+            `ADMIN_PROP_VIEW_${p.id}`
+          )
+        ]);
+
+        const navRow = [];
+        if (page > 0) {
+          navRow.push(Markup.button.callback('⬅️ صفحه قبل', `ADMIN_LIST_END_PROP_${page - 1}`));
+        }
+        if ((page + 1) * pageSize < total) {
+          navRow.push(Markup.button.callback('صفحه بعد ➡️', `ADMIN_LIST_END_PROP_${page + 1}`));
+        }
+        if (navRow.length > 0) {
+          buttons.push(navRow);
+        }
+
+        buttons.push([Markup.button.callback('🔙 بازگشت به مدیریت آگهی‌ها', 'ADMIN_PROP_MNG')]);
+
+        const totalPages = Math.ceil(total / pageSize) || 1;
+        const msgText = `🗄 <b>آرشیو آگهی‌های پایان‌یافته:</b>\n` +
+          `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> آگهی)\n\n` +
+          `برای مشاهده جزئیات یا حذف کامل هر آگهی کلیک کنید:`;
+
+        const markup = {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard(buttons)
+        };
+
+        if (hasPhoto) {
+          await ctx.deleteMessage().catch(() => {});
+          await ctx.reply(msgText, markup as any);
+        } else {
+          await ctx.editMessageText(msgText, markup as any).catch(() => {});
+        }
+      } catch (error) {
+        console.error('Error listing ended proposals:', error);
       }
       return;
     }
