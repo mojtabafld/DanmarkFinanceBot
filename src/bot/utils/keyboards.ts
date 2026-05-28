@@ -9,3 +9,8 @@ export const mainKeyboard = Markup.keyboard([
 export const verifyStartKeyboard = Markup.keyboard([
   ['🔐 شروع احراز هویت']
 ]).resize();
+
+export const pendingVerificationKeyboard = Markup.keyboard([
+  ['❌ لغو ارسال اطلاعات']
+]).resize();
+

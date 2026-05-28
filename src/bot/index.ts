@@ -9,7 +9,7 @@ import { adminEditPropWizard, ADMIN_EDIT_PROP_SCENE_ID } from './scenes/adminEdi
 import { handleDeepLink } from './handlers/deepLink';
 import { acceptDealWizard, ACCEPT_DEAL_SCENE_ID } from './scenes/dealWizard';
 import { updateGroupProposalMessage, formatToShamsi } from './utils/groupMessage';
-import { mainKeyboard, verifyStartKeyboard } from './utils/keyboards';
+import { mainKeyboard, verifyStartKeyboard, pendingVerificationKeyboard } from './utils/keyboards';
 import { editProposalWizard, EDIT_PROPOSAL_SCENE_ID } from './scenes/editProposal';
 import { adminUpdateRatesWizard, ADMIN_UPDATE_RATES_SCENE_ID } from './scenes/adminUpdateRates';
 
@@ -77,7 +77,10 @@ const checkVerified = async (ctx: BotContext, next: () => Promise<void>) => {
     }
 
     if (user?.verificationStatus === 'PENDING') {
-      await ctx.reply('⏳ مدارک احراز هویت شما در حال بررسی توسط مدیریت است. لطفا منتظر بمانید.');
+      await ctx.reply(
+        '⏳ مدارک احراز هویت شما در حال بررسی توسط مدیریت است. لطفا منتظر بمانید.',
+        pendingVerificationKeyboard
+      );
       return;
     }
 
@@ -145,7 +148,7 @@ bot.start(async (ctx) => {
       await ctx.reply(
         `⏳ مدارک احراز هویت شما قبلاً ارسال شده و در حال بررسی توسط مدیریت است.\n` +
         `پس از تایید ادمین، لینک ورود به گروه معاملاتی برای شما ارسال خواهد شد.`,
-        verifyStartKeyboard
+        pendingVerificationKeyboard
       );
       return;
     }
@@ -216,6 +219,45 @@ bot.help(checkVerified, async (ctx) => {
 // Start verification hears
 bot.hears('🔐 شروع احراز هویت', async (ctx) => {
   await ctx.scene.enter(VERIFY_USER_SCENE_ID);
+});
+
+bot.hears('❌ لغو ارسال اطلاعات', async (ctx) => {
+  const from = ctx.from;
+  if (!from) return;
+
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { telegramId: from.id.toString() }
+    });
+
+    if (!dbUser || dbUser.verificationStatus !== 'PENDING') {
+      await ctx.reply('⚠️ شما در حال حاضر درخواست احراز هویت در انتظار تایید ندارید.');
+      return;
+    }
+
+    // Reset user verification status and clear submitted info
+    await prisma.user.update({
+      where: { telegramId: from.id.toString() },
+      data: {
+        verificationStatus: 'UNVERIFIED',
+        documentFileId: null,
+        fullName: null,
+        country: null,
+        phoneNumber: null,
+        rejectReason: null
+      }
+    });
+
+    await ctx.reply(
+      '❌ ارسال مدارک احراز هویت شما با موفقیت لغو و اطلاعات قبلی پاک شد.\n\n' +
+      'اکنون می‌توانید مجدداً فرآیند احراز هویت را شروع کنید:',
+      verifyStartKeyboard
+    );
+
+  } catch (err) {
+    console.error('Error canceling verification submission:', err);
+    await ctx.reply('❌ خطا در لغو ارسال اطلاعات.');
+  }
 });
 
 // Text command handlers (Protected with checkVerified middleware)
