@@ -274,11 +274,17 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         return;
       }
 
-      ctx.wizard.state.buyerPaymentInfo = text;
+      let methodLabel = '';
+      if (method === 'REVOLUT') methodLabel = 'رولوت (Revolut)';
+      else if (method === 'DENMARK_BANK') methodLabel = 'حساب بانکی دانمارک';
+      else if (method === 'MOBILEPAY') methodLabel = 'موبایل‌پی (MobilePay)';
+
+      const formattedInfo = `روش پرداخت: ${methodLabel}\nاطلاعات حساب: ${text}`;
+      ctx.wizard.state.buyerPaymentInfo = formattedInfo;
 
       await ctx.reply(
         `✅ اطلاعات حساب شما ثبت شد:\n` +
-        `<code>${text}</code>\n\n` +
+        `<code>${formattedInfo}</code>\n\n` +
         `📸 <b>اکنون لطفاً تصویر فیش واریز ریالی خود را ارسال کنید:</b>`,
         {
           parse_mode: 'HTML',

@@ -2854,13 +2854,27 @@ bot.on('callback_query', async (ctx) => {
         }
       ).catch(err => console.error(err));
 
+      // Detect payment method type for clear instruction
+      let paymentTypeInstruction = '';
+      const infoLower = (deal.buyerPaymentInfo || '').toLowerCase();
+      if (infoLower.includes('revolut') || infoLower.includes('رولوت')) {
+        paymentTypeInstruction = `⚠️ <b>توجه:</b> لطفاً مبلغ را به صورت انتقال <b>رولوت (Revolut)</b> واریز نمایید.`;
+      } else if (infoLower.includes('mobilepay') || infoLower.includes('موبایل‌پی') || infoLower.includes('موبایل پی')) {
+        paymentTypeInstruction = `⚠️ <b>توجه:</b> لطفاً مبلغ را به صورت انتقال <b>موبایل‌پی (MobilePay)</b> واریز نمایید.`;
+      } else if (infoLower.includes('bank') || infoLower.includes('بانک') || infoLower.includes('reg') || infoLower.includes('رجیستر')) {
+        paymentTypeInstruction = `⚠️ <b>توجه:</b> لطفاً مبلغ را به صورت انتقال به <b>حساب بانکی دانمارک</b> واریز نمایید.`;
+      } else {
+        paymentTypeInstruction = `⚠️ <b>توجه:</b> لطفاً با توجه به اطلاعات حساب خریدار، مبلغ را به روش مربوطه (موبایل‌پی، رولوت یا حساب بانکی دانمارک) واریز نمایید.`;
+      }
+
       // Notify Seller
       const sellerNotifyMsg =
-        `🔔 **خریدار مبلغ معامله را به حساب ادمین واریز کرد و مورد تایید قرار گرفت.**\n\n` +
-        `اکنون نوبت شماست که مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} را به حساب خریدار واریز کرده و تصویر فیش واریزی آن را از طریق دکمه **«📤 ارسال فیش واریزی»** در زیر منوی اصلی ارسال نمایید.\n\n` +
-        `👤 **خریدار:** ${buyerContact}\n` +
-        `📋 **اطلاعات حساب خریدار جهت واریز کرون:**\n` +
+        `🔔 <b>خریدار مبلغ معامله را به حساب ادمین واریز کرد و مورد تایید قرار گرفت.</b>\n\n` +
+        `اکنون نوبت شماست که مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} را به حساب خریدار واریز کرده و تصویر فیش واریزی آن را از طریق دکمه <b>«📤 ارسال فیش واریزی»</b> در زیر منوی اصلی ارسال نمایید.\n\n` +
+        `👤 <b>خریدار:</b> ${buyerContact}\n` +
+        `📋 <b>اطلاعات حساب خریدار جهت واریز کرون:</b>\n` +
         `<code>${deal.buyerPaymentInfo ?? 'ثبت نشده'}</code>\n\n` +
+        `${paymentTypeInstruction}\n\n` +
         `👉 ارتباط با ادمین جهت راهنمایی: @${config.ADMIN_USERNAME}`;
 
       const sellerKb = await getMainKeyboard(seller.telegramId);
@@ -2873,7 +2887,13 @@ bot.on('callback_query', async (ctx) => {
         }
       ).catch(err => console.error(err));
 
-      await ctx.editMessageText(`✅ فیش واریز خریدار تایید شد. معامله #${dealId} در انتظار واریز کرون فروشنده.`).catch(() => {});
+      const hasPhoto = ctx.callbackQuery?.message && 'photo' in ctx.callbackQuery.message;
+      const doneMsg = `✅ فیش واریز خریدار تایید شد. معامله #${dealId} در انتظار واریز کرون فروشنده.`;
+      if (hasPhoto) {
+        await ctx.editMessageCaption(doneMsg).catch(() => {});
+      } else {
+        await ctx.editMessageText(doneMsg).catch(() => {});
+      }
     } catch (err) {
       console.error(err);
       await ctx.reply('❌ خطا در تایید فیش خریدار.');
@@ -2922,7 +2942,13 @@ bot.on('callback_query', async (ctx) => {
         }
       ).catch(err => console.error(err));
 
-      await ctx.editMessageText(`❌ فیش واریز خریدار برای معامله #${dealId} رد شد.`).catch(() => {});
+      const hasPhoto = ctx.callbackQuery?.message && 'photo' in ctx.callbackQuery.message;
+      const doneMsg = `❌ فیش واریز خریدار برای معامله #${dealId} رد شد.`;
+      if (hasPhoto) {
+        await ctx.editMessageCaption(doneMsg).catch(() => {});
+      } else {
+        await ctx.editMessageText(doneMsg).catch(() => {});
+      }
     } catch (err) {
       console.error(err);
       await ctx.reply('❌ خطا در رد فیش خریدار.');
@@ -3043,7 +3069,13 @@ bot.on('callback_query', async (ctx) => {
         ...sellerKb
       }).catch(err => console.error(err));
 
-      await ctx.editMessageText(`✅ فیش انتقال فروشنده تایید و معامله #${dealId} تکمیل نهایی شد.`).catch(() => {});
+      const hasPhoto = ctx.callbackQuery?.message && 'photo' in ctx.callbackQuery.message;
+      const doneMsg = `✅ فیش انتقال فروشنده تایید و معامله #${dealId} تکمیل نهایی شد.`;
+      if (hasPhoto) {
+        await ctx.editMessageCaption(doneMsg).catch(() => {});
+      } else {
+        await ctx.editMessageText(doneMsg).catch(() => {});
+      }
 
       // Update group message
       await updateGroupProposalMessage(ctx.telegram, deal.proposalId);
@@ -3113,7 +3145,13 @@ bot.on('callback_query', async (ctx) => {
         }
       ).catch(err => console.error(err));
 
-      await ctx.editMessageText(`❌ فیش انتقال فروشنده برای معامله #${dealId} رد شد.`).catch(() => {});
+      const hasPhoto = ctx.callbackQuery?.message && 'photo' in ctx.callbackQuery.message;
+      const doneMsg = `❌ فیش انتقال فروشنده برای معامله #${dealId} رد شد.`;
+      if (hasPhoto) {
+        await ctx.editMessageCaption(doneMsg).catch(() => {});
+      } else {
+        await ctx.editMessageText(doneMsg).catch(() => {});
+      }
     } catch (err) {
       console.error(err);
       await ctx.reply('❌ خطا در رد فیش فروشنده.');
