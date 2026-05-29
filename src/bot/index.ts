@@ -2823,8 +2823,10 @@ bot.on('callback_query', async (ctx) => {
         }
       });
 
+      console.log('APPROVE_BUYER_RECEIPT debug:', { dealId, found: !!deal, status: deal?.status });
+
       if (!deal || deal.status !== 'BUYER_PAID_PENDING_APPROVAL') {
-        await ctx.reply('❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است.');
+        await ctx.reply(`❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است. (وضعیت فعلی: ${deal?.status})`);
         return;
       }
 
@@ -2894,8 +2896,10 @@ bot.on('callback_query', async (ctx) => {
         }
       });
 
+      console.log('REJECT_BUYER_RECEIPT debug:', { dealId, found: !!deal, status: deal?.status });
+
       if (!deal || deal.status !== 'BUYER_PAID_PENDING_APPROVAL') {
-        await ctx.reply('❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است.');
+        await ctx.reply(`❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است. (وضعیت فعلی: ${deal?.status})`);
         return;
       }
 
@@ -2941,8 +2945,10 @@ bot.on('callback_query', async (ctx) => {
         }
       });
 
+      console.log('APPROVE_SELLER_RECEIPT debug:', { dealId, found: !!deal, status: deal?.status });
+
       if (!deal || deal.status !== 'SELLER_PAID_PENDING_APPROVAL') {
-        await ctx.reply('❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است.');
+        await ctx.reply(`❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است. (وضعیت فعلی: ${deal?.status})`);
         return;
       }
 
@@ -3081,8 +3087,10 @@ bot.on('callback_query', async (ctx) => {
         }
       });
 
+      console.log('REJECT_SELLER_RECEIPT debug:', { dealId, found: !!deal, status: deal?.status });
+
       if (!deal || deal.status !== 'SELLER_PAID_PENDING_APPROVAL') {
-        await ctx.reply('❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است.');
+        await ctx.reply(`❌ معامله در وضعیت معتبری نیست یا قبلاً بررسی شده است. (وضعیت فعلی: ${deal?.status})`);
         return;
       }
 
