@@ -93,19 +93,22 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
       if (role === 'BUYER') {
         // Send a persistent cancel keyboard first to allow cancellation at any point
         await ctx.reply(
-          `👤 **خریدار گرامی**\n\n` +
+          `👤 <b>خریدار گرامی</b>\n\n` +
           `لطفاً مبلغ کل معامله به ارزش <code>${totalValue.toLocaleString('fa-IR')}</code> تومان را به حساب ادمین واریز نمایید:\n\n` +
-          `💳 **شماره حساب بانک ملی:** <code>0000000012</code>\n` +
-          `👤 **به نام:** فرشاد صادقی\n\n` +
-          `📌 **جزئیات معامله:**\n` +
+          `💳 <b>شماره حساب بانک ملی:</b> <code>0000000012</code>\n` +
+          `👤 <b>به نام:</b> فرشاد صادقی\n\n` +
+          `📌 <b>جزئیات معامله:</b>\n` +
           `🔹 آگهی کد <code>${activeDeal.proposal.code ?? activeDeal.proposal.id}</code>\n` +
           `🔹 مقدار معامله: <code>${activeDeal.amount.toLocaleString('fa-IR')}</code> ${activeDeal.proposal.currency}\n` +
           `🔹 نرخ توافقی: <code>${agreedPrice.toLocaleString('fa-IR')}</code> تومان`,
-          Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+          {
+            parse_mode: 'HTML',
+            ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+          }
         );
 
         await ctx.reply(
-          `👇 **لطفاً ابتدا نوع حساب خود جهت دریافت کرون از فروشنده را انتخاب کنید:**`,
+          `👇 <b>لطفاً ابتدا نوع حساب خود جهت دریافت کرون از فروشنده را انتخاب کنید:</b>`,
           {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
@@ -122,12 +125,12 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         return ctx.wizard.next();
       } else {
         await ctx.reply(
-          `👤 **فروشنده گرامی**\n\n` +
+          `👤 <b>فروشنده گرامی</b>\n\n` +
           `خریدار وجه ریالی را واریز و مدیریت آن را تایید کرده است.\n` +
           `لطفاً مقدار <code>${activeDeal.amount.toLocaleString('fa-IR')}</code> ${activeDeal.proposal.currency} را به حساب خریدار واریز کرده و تصویر فیش واریزی را ارسال کنید.\n\n` +
-          `📋 **اطلاعات حساب خریدار جهت واریز کرون:**\n` +
+          `📋 <b>اطلاعات حساب خریدار جهت واریز کرون:</b>\n` +
           `<code>${activeDeal.buyerPaymentInfo ?? 'ثبت نشده'}</code>\n\n` +
-          `📌 **جزئیات معامله:**\n` +
+          `📌 <b>جزئیات معامله:</b>\n` +
           `🔹 آگهی کد <code>${activeDeal.proposal.code ?? activeDeal.proposal.id}</code>\n` +
           `🔹 نرخ توافقی: <code>${agreedPrice.toLocaleString('fa-IR')}</code> تومان\n` +
           `🔹 مبلغ کل معامله: <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n\n` +
@@ -158,7 +161,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         ctx.wizard.state.paymentMethod = 'REVOLUT';
         await ctx.deleteMessage().catch(() => {});
         await ctx.reply(
-          `💳 **روش انتخابی: حساب رولوت (Revolut)**\n\n` +
+          `💳 <b>روش انتخابی: حساب رولوت (Revolut)</b>\n\n` +
           `لطفاً اطلاعات حساب رولوت خود را طبق الگوی زیر ارسال کنید:\n` +
           `• <code>رولوت: @username</code>\n` +
           `• <code>رولوت: +4512345678</code>\n\n` +
@@ -175,7 +178,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         ctx.wizard.state.paymentMethod = 'DENMARK_BANK';
         await ctx.deleteMessage().catch(() => {});
         await ctx.reply(
-          `🇩🇰 **روش انتخابی: حساب بانکی دانمارک**\n\n` +
+          `🇩🇰 <b>روش انتخابی: حساب بانکی دانمارک</b>\n\n` +
           `لطفاً اطلاعات حساب خود را شامل نام بانک، کد رجیستر (Reg) و شماره حساب طبق الگوی زیر ارسال کنید:\n` +
           `• <code>بانک: [نام بانک] - رجیستر: [کد Reg] - حساب: [شماره حساب]</code>\n\n` +
           `✍️ اطلاعات را به صورت متنی تایپ و ارسال کنید:`,
@@ -191,7 +194,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         ctx.wizard.state.paymentMethod = 'MOBILEPAY';
         await ctx.deleteMessage().catch(() => {});
         await ctx.reply(
-          `📱 **روش انتخابی: موبایل‌پی (MobilePay)**\n\n` +
+          `📱 <b>روش انتخابی: موبایل‌پی (MobilePay)</b>\n\n` +
           `لطفاً شماره موبایل‌پی خود را (شماره تلفن ۸ رقمی دانمارک) طبق الگوی زیر ارسال کنید:\n` +
           `• <code>موبایل‌پی: 12345678</code>\n\n` +
           `✍️ اطلاعات را به صورت متنی تایپ و ارسال کنید:`,
@@ -214,7 +217,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
       const method = ctx.wizard.state.paymentMethod;
       if (!method) {
         await ctx.reply(
-          `⚠️ **لطفاً ابتدا یکی از روش‌های دریافت کرون را از دکمه‌های شیشه‌ای زیر انتخاب کنید:**`,
+          `⚠️ <b>لطفاً ابتدا یکی از روش‌های دریافت کرون را از دکمه‌های شیشه‌ای زیر انتخاب کنید:</b>`,
           {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
@@ -239,7 +242,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         const hasRevolut = normalized.includes('revolut') || normalized.includes('رولوت') || normalized.includes('@');
         isValid = hasRevolut && text.length >= 4;
         errorMsg = 
-          `⚠️ **خطا در قالب اطلاعات رولوت!**\n\n` +
+          `⚠️ <b>خطا در قالب اطلاعات رولوت!</b>\n\n` +
           `اطلاعات وارد شده باید معتبر بوده و شامل عبارت "رولوت" یا علامت "@" باشد.\n` +
           `الگو: <code>رولوت: @username</code>\n\n` +
           `✍️ لطفاً مجدداً اطلاعات صحیح را وارد کنید:`;
@@ -248,7 +251,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         const hasDigits = /\d{4,}/.test(normalized);
         isValid = hasBank && hasDigits && text.length >= 8;
         errorMsg = 
-          `⚠️ **خطا در قالب اطلاعات حساب بانکی!**\n\n` +
+          `⚠️ <b>خطا در قالب اطلاعات حساب بانکی!</b>\n\n` +
           `اطلاعات وارد شده باید شامل نام بانک/کد رجیستر و شماره حساب باشد.\n` +
           `الگو: <code>بانک: Mellat - رجیستر: 1234 - حساب: 12345678</code>\n\n` +
           `✍️ لطفاً مجدداً اطلاعات صحیح را وارد کنید:`;
@@ -256,7 +259,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         const hasDigits = /\d{8,}/.test(normalized);
         isValid = hasDigits && text.length >= 8;
         errorMsg = 
-          `⚠️ **خطا در قالب شماره موبایل‌پی!**\n\n` +
+          `⚠️ <b>خطا در قالب شماره موبایل‌پی!</b>\n\n` +
           `شماره موبایل‌پی باید حداقل شامل یک شماره ۸ رقمی باشد.\n` +
           `الگو: <code>موبایل‌پی: 12345678</code>\n\n` +
           `✍️ لطفاً مجدداً اطلاعات صحیح را وارد کنید:`;
@@ -275,7 +278,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
       await ctx.reply(
         `✅ اطلاعات حساب شما ثبت شد:\n` +
         `<code>${text}</code>\n\n` +
-        `📸 **اکنون لطفاً تصویر فیش واریز ریالی خود را ارسال کنید:**`,
+        `📸 <b>اکنون لطفاً تصویر فیش واریز ریالی خود را ارسال کنید:</b>`,
         {
           parse_mode: 'HTML',
           ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
@@ -352,7 +355,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
             `🔹 <b>مبلغ کل معامله:</b> <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
             `🔹 <b>آگهی مربوطه:</b> کد ${deal.proposal.code ?? deal.proposalId}\n` +
             `🔹 <b>مقدار معامله:</b> <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency}\n` +
-            `📌 **اطلاعات حساب خریدار جهت واریز کرون:**\n` +
+            `📌 <b>اطلاعات حساب خریدار جهت واریز کرون:</b>\n` +
             `<code>${buyerPaymentInfo}</code>\n\n` +
             `❓ آیا فیش واریزی خریدار مورد تایید است؟`;
 
@@ -377,7 +380,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
             `🔹 <b>مقدار انتقال:</b> <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency}\n` +
             `🔹 <b>آگهی مربوطه:</b> کد ${deal.proposal.code ?? deal.proposalId}\n` +
             `🔹 <b>مبلغ کل معامله:</b> <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
-            `📌 **اطلاعات حساب خریدار جهت تطبیق:**\n` +
+            `📌 <b>اطلاعات حساب خریدار جهت تطبیق:</b>\n` +
             `<code>${deal.buyerPaymentInfo ?? 'ثبت نشده'}</code>\n\n` +
             `❓ آیا فیش انتقال فروشنده مورد تایید است؟`;
 
@@ -398,7 +401,13 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
       } catch (err) {
         console.error('Error handling uploaded receipt photo:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
-        await ctx.reply(`❌ خطا در فرآیند ارسال فیش به مدیریت.\n\n⚠️ **علت خطا:** <code>${errMsg}</code>`, mainKeyboard);
+        await ctx.reply(
+          `❌ خطا در فرآیند ارسال فیش به مدیریت.\n\n⚠️ <b>علت خطا:</b> <code>${errMsg}</code>`,
+          {
+            parse_mode: 'HTML',
+            ...mainKeyboard
+          }
+        );
         return ctx.scene.leave();
       }
     }
