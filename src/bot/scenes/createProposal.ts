@@ -168,16 +168,16 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
         ? 'روش دریافت مبلغ (تسویه) را انتخاب کنید:'
         : 'روش پرداخت مبلغ (تسویه) را انتخاب کنید:';
         
-      const cashText = isSell ? '💵 فروش نقدی (اسکناس)' : '💵 خرید نقدی (اسکناس)';
-      const revolutText = isSell ? '💳 فروش از طریق رولوت' : '💳 خرید از طریق رولوت';
-      const bankText = '🏦 واریز به حساب';
+      const revolutText = isSell ? '💳 فروش از طریق رولوت (Revolut)' : '💳 خرید از طریق رولوت (Revolut)';
+      const bankText = '🏦 حساب بانکی دانمارک';
+      const mobilePayText = isSell ? '📱 فروش از طریق موبایل‌پی (MobilePay)' : '📱 خرید از طریق موبایل‌پی (MobilePay)';
 
       await ctx.reply(
         promptText,
         Markup.inlineKeyboard([
-          [Markup.button.callback(cashText, 'SELECT_PAY_CASH')],
           [Markup.button.callback(revolutText, 'SELECT_PAY_REVOLUT')],
           [Markup.button.callback(bankText, 'SELECT_PAY_BANK')],
+          [Markup.button.callback(mobilePayText, 'SELECT_PAY_MOBILEPAY')],
           [Markup.button.callback('❌ انصراف', 'CANCEL_WIZARD')]
         ])
       );
@@ -201,12 +201,12 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
       let paymentMethod = '';
       const isSell = ctx.wizard.state.type === 'SELL';
 
-      if (data === 'SELECT_PAY_CASH') {
-        paymentMethod = isSell ? 'فروش نقدی (اسکناس)' : 'خرید نقدی (اسکناس)';
-      } else if (data === 'SELECT_PAY_REVOLUT') {
-        paymentMethod = isSell ? 'فروش از طریق رولوت' : 'خرید از طریق رولوت';
+      if (data === 'SELECT_PAY_REVOLUT') {
+        paymentMethod = isSell ? 'فروش از طریق رولوت (Revolut)' : 'خرید از طریق رولوت (Revolut)';
       } else if (data === 'SELECT_PAY_BANK') {
-        paymentMethod = 'واریز به حساب';
+        paymentMethod = 'حساب بانکی دانمارک';
+      } else if (data === 'SELECT_PAY_MOBILEPAY') {
+        paymentMethod = isSell ? 'فروش از طریق موبایل‌پی (MobilePay)' : 'خرید از طریق موبایل‌پی (MobilePay)';
       } else {
         await ctx.reply('لطفاً یکی از گزینه‌های تسویه را انتخاب کنید.');
         return;
