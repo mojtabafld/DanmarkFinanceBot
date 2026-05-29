@@ -9,7 +9,7 @@ interface ReceiptState {
   agreedPrice?: number;
   totalValue?: number;
   buyerPaymentInfo?: string;
-  paymentMethod?: 'REVOLUT' | 'DENMARK_BANK' | 'MOBILEPAY';
+  paymentMethod?: string;
 }
 
 export interface MyReceiptContext extends Scenes.WizardContext {
