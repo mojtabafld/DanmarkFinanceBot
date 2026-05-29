@@ -40,7 +40,7 @@ async function listOffers(ctx: MyManageOffersContext) {
     const buttons = offers.map(offer => {
       const typeText = offer.proposal.type === 'BUY' ? 'خرید' : 'فروش';
       return [Markup.button.callback(
-        `کد ${offer.proposal.code} | مقدار: ${offer.amount} | نرخ: ${offer.price.toLocaleString('fa-IR')} ت`,
+        `کد ${offer.proposal.code ?? offer.proposal.id} | مقدار: ${offer.amount} | نرخ: ${offer.price.toLocaleString('fa-IR')} ت`,
         `SELECT_OFFER_${offer.id}`
       )];
     });
@@ -66,6 +66,47 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
 
   // Step 1: Fetch and List Counter Offers
   async (ctx) => {
+    const sceneState = ctx.scene.state as { offerId?: number };
+    if (sceneState && sceneState.offerId) {
+      ctx.wizard.state.offerId = sceneState.offerId;
+      try {
+        const offer = await prisma.counterOffer.findUnique({
+          where: { id: sceneState.offerId },
+          include: { proposal: { include: { creator: true } } }
+        });
+        if (offer && offer.status === 'PENDING') {
+          const prop = offer.proposal;
+          const typeText = prop.type === 'BUY' ? '🟢 خرید ارز توسط او' : '🔴 فروش ارز توسط او';
+          const details = 
+            `📋 **جزئیات پیشنهاد قیمت شما:**\n\n` +
+            `🔹 **آگهی مربوطه:** کد ${prop.code ?? prop.id} (${typeText})\n` +
+            `🔹 **مقدار کل آگهی:** ${prop.amount.toLocaleString('fa-IR')} ${prop.currency}\n` +
+            `🔹 **نرخ واحد آگهی:** ${prop.price.toLocaleString('fa-IR')} تومان\n` +
+            `🔹 **تسویه:** ${prop.paymentMethod || 'ثبت نشده'}\n` +
+            `➖➖➖➖➖➖➖➖➖➖\n` +
+            `💵 **مقدار پیشنهادی شما:** <code>${offer.amount.toLocaleString('fa-IR')}</code> ${prop.currency}\n` +
+            `💵 **نرخ پیشنهادی شما:** <code>${offer.price.toLocaleString('fa-IR')}</code> تومان\n` +
+            `💵 **ارزش کل پیشنهادی:** <code>${(offer.amount * offer.price).toLocaleString('fa-IR')}</code> تومان\n\n` +
+            `👇 عملیات مورد نظر خود را انتخاب کنید:`;
+
+          await ctx.replyWithHTML(
+            details,
+            Markup.inlineKeyboard([
+              [
+                Markup.button.callback('✏️ ویرایش پیشنهاد', `EDIT_OFFER_${offer.id}`),
+                Markup.button.callback('❌ لغو پیشنهاد', `DELETE_OFFER_${offer.id}`)
+              ],
+              [Markup.button.callback('🔙 بازگشت به لیست پیشنهادها', 'BACK_TO_OFFERS_LIST')]
+            ])
+          );
+          ctx.wizard.selectStep(1); // Set step to handle callback
+          return;
+        }
+      } catch (err) {
+        console.error('Error fetching specific offer in step 1:', err);
+      }
+    }
+
     ctx.wizard.state = {};
     return listOffers(ctx);
   },
@@ -180,7 +221,7 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
             
           const cancelMsg = 
             `❌ **لغو پیشنهاد قیمت**\n\n` +
-            `کاربر ${proposerMention} پیشنهاد خود را روی آگهی کد <code>${offer.proposal.code}</code> شما لغو کرد:\n` +
+            `کاربر ${proposerMention} پیشنهاد خود را روی آگهی کد <code>${offer.proposal.code ?? offer.proposal.id}</code> شما لغو کرد:\n` +
             `🔹 **مقدار پیشنهادی:** ${offer.amount.toLocaleString('fa-IR')} ${offer.proposal.currency}\n` +
             `🔹 **نرخ پیشنهادی:** ${offer.price.toLocaleString('fa-IR')} تومان`;
 
@@ -217,7 +258,7 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
 
           const maxAmount = offer.proposal.amount;
           await ctx.reply(
-            `✏️ **ویرایش مقدار پیشنهادی (آگهی کد ${offer.proposal.code})**\n\n` +
+            `✏️ **ویرایش مقدار پیشنهادی (آگهی کد ${offer.proposal.code ?? offer.proposal.id})**\n\n` +
             `مقدار پیشنهادی فعلی شما: <code>${offer.amount.toLocaleString('fa-IR')}</code> ${offer.proposal.currency}\n` +
             `حداکثر مقدار مجاز قابل معامله: <code>${maxAmount.toLocaleString('fa-IR')}</code>\n\n` +
             `لطفاً مقدار جدید پیشنهادی خود را وارد کنید (به صورت عدد انگلیسی):`,
@@ -266,7 +307,7 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
         ctx.wizard.state.amount = amount;
 
         await ctx.reply(
-          `✏️ **ویرایش نرخ پیشنهادی (آگهی کد ${offer.proposal.code})**\n\n` +
+          `✏️ **ویرایش نرخ پیشنهادی (آگهی کد ${offer.proposal.code ?? offer.proposal.id})**\n\n` +
           `نرخ پیشنهادی فعلی شما: <code>${offer.price.toLocaleString('fa-IR')}</code> تومان\n` +
           `نرخ آگهی اصلی (حداکثر نرخ مجاز): <code>${offer.proposal.price.toLocaleString('fa-IR')}</code> تومان\n\n` +
           `لطفاً نرخ پیشنهادی جدید خود را به تومان وارد کنید:`,
@@ -318,7 +359,7 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
 
         const summary = 
           `📝 **پیش‌نویس ویرایش پیشنهاد شما:**\n\n` +
-          `🔹 **آگهی:** کد ${offer.proposal.code}\n` +
+          `🔹 **آگهی:** کد ${offer.proposal.code ?? offer.proposal.id}\n` +
           `🔹 **مقدار جدید پیشنهادی:** ${amount.toLocaleString('fa-IR')} ${offer.proposal.currency}\n` +
           `🔹 **نرخ جدید پیشنهادی:** ${price.toLocaleString('fa-IR')} تومان\n` +
           `🔹 **مبلغ کل جدید پیشنهادی:** ${total.toLocaleString('fa-IR')} تومان\n\n` +
@@ -387,7 +428,7 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
 
           const editMsg = 
             `🔔 **ویرایش پیشنهاد قیمت**\n\n` +
-            `کاربر ${proposerMention} پیشنهاد خود را روی آگهی کد <code>${offer.proposal.code}</code> شما ویرایش کرد:\n` +
+            `کاربر ${proposerMention} پیشنهاد خود را روی آگهی کد <code>${offer.proposal.code ?? offer.proposal.id}</code> شما ویرایش کرد:\n` +
             `🔹 **مقدار پیشنهادی جدید:** <code>${amount.toLocaleString('fa-IR')}</code> ${offer.proposal.currency}\n` +
             `🔹 **نرخ پیشنهادی جدید:** <code>${price.toLocaleString('fa-IR')}</code> تومان\n` +
             `🔹 **ارزش کل جدید:** <code>${(amount * price).toLocaleString('fa-IR')}</code> تومان`;

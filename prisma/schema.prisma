@@ -54,14 +54,15 @@ model Proposal {
 }
 
 model Deal {
-  id          Int      @id @default(autoincrement())
-  proposalId  Int
-  proposal    Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-  acceptorId  Int
-  acceptor    User     @relation("UserDeals", fields: [acceptorId], references: [id], onDelete: Cascade)
-  status      String   // "PENDING", "COMPLETED", "REJECTED"
-  amount      Float    @default(0)
-  createdAt   DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  proposalId       Int
+  proposal         Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  acceptorId       Int
+  acceptor         User     @relation("UserDeals", fields: [acceptorId], references: [id], onDelete: Cascade)
+  status           String   // "PENDING", "COMPLETED", "REJECTED"
+  amount           Float    @default(0)
+  createdAt        DateTime @default(now())
+  buyerPaymentInfo String?
 }
 
 model CounterOffer {

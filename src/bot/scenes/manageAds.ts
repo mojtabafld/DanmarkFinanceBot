@@ -1,5 +1,6 @@
 import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
+import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
 import { updateGroupProposalMessage } from '../utils/groupMessage';
 
@@ -251,16 +252,49 @@ export const manageAdsWizard = new Scenes.WizardScene<MyManageAdsContext>(
             return;
           }
 
+          // Fetch all pending counter-offers on this proposal
+          const pendingOffers = await prisma.counterOffer.findMany({
+            where: {
+              proposalId: propId,
+              status: 'PENDING'
+            },
+            include: { proposer: true }
+          });
+
+          // Mark those counter-offers as REJECTED in database
+          await prisma.counterOffer.updateMany({
+            where: {
+              proposalId: propId,
+              status: 'PENDING'
+            },
+            data: { status: 'REJECTED' }
+          });
+
           // Update proposal status in DB
           await prisma.proposal.update({
             where: { id: propId },
             data: { status: 'CANCELLED' }
           });
 
-          // Update/Delete group message
-          await updateGroupProposalMessage(ctx.telegram, propId);
+          // Delete group message completely
+          if (prop.groupMessageId) {
+            await ctx.telegram.deleteMessage(config.GROUP_CHAT_ID, prop.groupMessageId).catch(err => {
+              console.error('Failed to delete group message during ad deletion:', err);
+            });
+          }
 
           await ctx.reply('✅ آگهی شما با موفقیت حذف و از گروه لغو گردید.');
+
+          // Notify counter-offerers
+          const notifyMsg = 
+            `⚠️ **اطلاعیه لغو آگهی**\n\n` +
+            `کاربر گرامی، آگهی کد <code>${prop.code ?? prop.id}</code> (${prop.amount.toLocaleString('fa-IR')} ${prop.currency}) که شما روی آن پیشنهاد قیمت ثبت کرده بودید، توسط آگهی‌دهنده لغو و حذف گردید.\n` +
+            `در نتیجه پیشنهاد قیمت شما نیز به صورت خودکار ملغی شد.`;
+
+          for (const offer of pendingOffers) {
+            await ctx.telegram.sendMessage(offer.proposer.telegramId, notifyMsg, { parse_mode: 'HTML' })
+              .catch(err => console.error(`Failed to notify proposer ${offer.proposer.telegramId} of deleted ad:`, err));
+          }
 
           // Redisplay list of active ads
           const dbUser = await prisma.user.findUnique({

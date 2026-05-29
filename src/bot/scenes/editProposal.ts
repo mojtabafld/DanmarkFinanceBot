@@ -203,14 +203,18 @@ export const editProposalWizard = new Scenes.WizardScene<MyEditWizardContext>(
           // Notify counter-offerers
           const notifyMsg = 
             `🔔 **اطلاعیه ویرایش آگهی**\n\n` +
-            `کاربر گرامی، آگهی کد <code>${proposal.code}</code> که شما روی آن پیشنهاد قیمت ثبت کرده بودید، توسط آگهی‌دهنده ویرایش گردید:\n` +
+            `کاربر گرامی، آگهی کد <code>${proposal.code ?? proposal.id}</code> که شما روی آن پیشنهاد قیمت ثبت کرده بودید، توسط آگهی‌دهنده ویرایش گردید:\n` +
             `🔹 **مقدار جدید:** <code>${amount.toLocaleString('fa-IR')}</code> ${proposal.currency}\n` +
             `🔹 **قیمت واحد جدید:** <code>${price.toLocaleString('fa-IR')}</code> تومان\n\n` +
-            `🔄 در صورت تمایل می‌توانید مجدداً از طریق دکمه «قبول پیشنهاد / ارسال پاسخ» در گروه، پیشنهاد جدیدی ثبت کنید.`;
+            `🔄 در صورت تمایل می‌توانید با زدن دکمه زیر پیشنهاد قیمت خود را متناسب با تغییرات جدید ویرایش کنید یا آن را لغو نمایید:`;
 
           for (const offer of pendingOffers) {
-            await ctx.telegram.sendMessage(offer.proposer.telegramId, notifyMsg, { parse_mode: 'HTML' })
-              .catch(err => console.error(`Failed to notify proposer ${offer.proposer.telegramId} of edit:`, err));
+            await ctx.telegram.sendMessage(offer.proposer.telegramId, notifyMsg, {
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('✏️ ویرایش پیشنهاد من', `USER_GO_EDIT_OFFER_${offer.id}`)]
+              ])
+            }).catch(err => console.error(`Failed to notify proposer ${offer.proposer.telegramId} of edit:`, err));
           }
 
           // Update group message

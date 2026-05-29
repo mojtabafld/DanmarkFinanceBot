@@ -8,6 +8,7 @@ interface ReceiptState {
   role?: 'BUYER' | 'SELLER';
   agreedPrice?: number;
   totalValue?: number;
+  buyerPaymentInfo?: string;
 }
 
 export interface MyReceiptContext extends Scenes.WizardContext {
@@ -21,7 +22,7 @@ export const UPLOAD_RECEIPT_SCENE_ID = 'UPLOAD_RECEIPT_SCENE';
 export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
   UPLOAD_RECEIPT_SCENE_ID,
 
-  // Step 1: Check active deals and ask for photo
+  // Step 1: Check active deals and ask for payment info (buyer) or jump to photo upload (seller)
   async (ctx) => {
     ctx.wizard.state = {};
     const from = ctx.from;
@@ -91,17 +92,20 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
       if (role === 'BUYER') {
         await ctx.reply(
           `👤 **خریدار گرامی**\n\n` +
-          `لطفاً مبلغ کل معامله به ارزش <code>${totalValue.toLocaleString('fa-IR')}</code> تومان را به حساب ادمین واریز کرده و سپس تصویر فیش واریزی را ارسال کنید.\n\n` +
+          `لطفاً مبلغ کل معامله به ارزش <code>${totalValue.toLocaleString('fa-IR')}</code> تومان را به حساب ادمین واریز نمایید:\n\n` +
+          `💳 **شماره حساب بانک ملی:** <code>0000000012</code>\n` +
+          `👤 **به نام:** فرشاد صادقی\n\n` +
           `📌 **جزئیات معامله:**\n` +
           `🔹 آگهی کد <code>${activeDeal.proposal.code ?? activeDeal.proposal.id}</code>\n` +
           `🔹 مقدار معامله: <code>${activeDeal.amount.toLocaleString('fa-IR')}</code> ${activeDeal.proposal.currency}\n` +
           `🔹 نرخ توافقی: <code>${agreedPrice.toLocaleString('fa-IR')}</code> تومان\n\n` +
-          `👉 ارتباط با ادمین جهت دریافت شماره حساب: @${config.ADMIN_USERNAME}`,
+          `✍️ **لطفاً شماره حساب رولوت (Revolut)، حساب بانکی دانمارک یا شماره موبایل‌پی (MobilePay) خود را جهت واریز کرون توسط فروشنده وارد کنید:**`,
           {
             parse_mode: 'HTML',
             ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
           }
         );
+        return ctx.wizard.next();
       } else {
         await ctx.reply(
           `👤 **فروشنده گرامی**\n\n` +
@@ -117,8 +121,9 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
             ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
           }
         );
+        ctx.wizard.selectStep(2); // Skip Step 2 and go directly to photo upload (Step 3)
+        return;
       }
-      return ctx.wizard.next();
     } catch (err) {
       console.error('Error starting uploadReceiptWizard:', err);
       await ctx.reply('❌ خطایی رخ داد.', mainKeyboard);
@@ -126,7 +131,38 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
     }
   },
 
-  // Step 2: Handle photo upload and send to admin
+  // Step 2: Handle Buyer Payment Info (Revolut, Denmark Bank Account or MobilePay)
+  async (ctx) => {
+    if (ctx.message && 'text' in ctx.message) {
+      const text = ctx.message.text.trim();
+      if (text === '❌ انصراف' || text === '/cancel') {
+        await ctx.reply('❌ عملیات ارسال فیش لغو شد.', mainKeyboard);
+        return ctx.scene.leave();
+      }
+
+      if (text.length < 3) {
+        await ctx.reply('⚠️ لطفاً اطلاعات حساب معتبری وارد کنید:');
+        return;
+      }
+
+      ctx.wizard.state.buyerPaymentInfo = text;
+
+      await ctx.reply(
+        `✅ اطلاعات حساب شما ثبت شد:\n` +
+        `<code>${text}</code>\n\n` +
+        `📸 **اکنون لطفاً تصویر فیش واریز ریالی خود را ارسال کنید:**`,
+        {
+          parse_mode: 'HTML',
+          ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+        }
+      );
+      return ctx.wizard.next();
+    }
+
+    await ctx.reply('⚠️ لطفاً اطلاعات حساب خود را به صورت متنی ارسال کنید:');
+  },
+
+  // Step 3: Handle photo upload and send to admin
   async (ctx) => {
     if (ctx.message && 'text' in ctx.message) {
       const text = ctx.message.text.trim();
@@ -143,6 +179,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
       const dealId = ctx.wizard.state.dealId!;
       const role = ctx.wizard.state.role!;
       const totalValue = ctx.wizard.state.totalValue!;
+      const buyerPaymentInfo = ctx.wizard.state.buyerPaymentInfo;
 
       try {
         const deal = await prisma.deal.findUnique({
@@ -172,7 +209,10 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         const newStatus = role === 'BUYER' ? 'BUYER_PAID_PENDING_APPROVAL' : 'SELLER_PAID_PENDING_APPROVAL';
         await prisma.deal.update({
           where: { id: dealId },
-          data: { status: newStatus }
+          data: {
+            status: newStatus,
+            buyerPaymentInfo: role === 'BUYER' ? buyerPaymentInfo : undefined
+          }
         });
 
         // Notify Admin
@@ -186,7 +226,9 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
             `👤 <b>خریدار:</b> ${buyerMention}\n` +
             `🔹 <b>مبلغ کل معامله:</b> <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
             `🔹 <b>آگهی مربوطه:</b> کد ${deal.proposal.code ?? deal.proposalId}\n` +
-            `🔹 <b>مقدار معامله:</b> <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency}\n\n` +
+            `🔹 <b>مقدار معامله:</b> <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency}\n` +
+            `📌 **اطلاعات حساب خریدار جهت واریز کرون:**\n` +
+            `<code>${buyerPaymentInfo}</code>\n\n` +
             `❓ آیا فیش واریزی خریدار مورد تایید است؟`;
 
           await ctx.telegram.sendPhoto(config.ADMIN_CHAT_ID, fileId, {

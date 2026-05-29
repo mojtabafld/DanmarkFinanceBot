@@ -563,6 +563,106 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
+  if (data.startsWith('USER_GO_EDIT_OFFER_')) {
+    const offerId = parseInt(data.replace('USER_GO_EDIT_OFFER_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(offerId)) return;
+
+    try {
+      const offer = await prisma.counterOffer.findUnique({
+        where: { id: offerId },
+        include: { proposal: true }
+      });
+
+      if (!offer || offer.status !== 'PENDING') {
+        await ctx.reply('⚠️ این پیشنهاد قیمت دیگر فعال نیست یا تغییر یافته است.');
+        return;
+      }
+
+      if (offer.proposal.status !== 'PENDING') {
+        await ctx.reply('⚠️ آگهی مربوط به این پیشنهاد دیگر فعال نیست.');
+        return;
+      }
+
+      await ctx.scene.enter(MANAGE_OFFERS_SCENE_ID, { offerId });
+    } catch (err) {
+      console.error('Error entering manage offers scene from edit notification:', err);
+      await ctx.reply('❌ خطا در باز کردن منوی ویرایش پیشنهاد.');
+    }
+    return;
+  }
+
+  // Handle Completed Proposal Deletion Prompts
+  if (data.startsWith('DELETE_COMPLETED_AD_MSG_')) {
+    const propId = parseInt(data.replace('DELETE_COMPLETED_AD_MSG_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(propId)) return;
+
+    try {
+      const prop = await prisma.proposal.findUnique({
+        where: { id: propId },
+        include: { creator: true }
+      });
+
+      if (!prop) {
+        await ctx.reply('⚠️ آگهی یافت نشد.');
+        return;
+      }
+
+      if (prop.creator.telegramId !== from.id.toString()) {
+        await ctx.reply('⚠️ شما مجاز به انجام این عملیات نیستید.');
+        return;
+      }
+
+      if (prop.groupMessageId) {
+        await ctx.telegram.deleteMessage(config.GROUP_CHAT_ID, prop.groupMessageId).catch(err => {
+          console.error('Failed to delete completed ad group message:', err);
+        });
+        
+        await prisma.proposal.update({
+          where: { id: propId },
+          data: { groupMessageId: null }
+        });
+
+        await ctx.editMessageText('✅ پیام آگهی با موفقیت از گروه حذف شد.').catch(() => {});
+      } else {
+        await ctx.editMessageText('⚠️ پیام این آگهی قبلاً از گروه حذف شده یا وجود ندارد.').catch(() => {});
+      }
+    } catch (err) {
+      console.error('Error deleting completed ad group message:', err);
+      await ctx.reply('❌ خطا در حذف پیام از گروه.');
+    }
+    return;
+  }
+
+  if (data.startsWith('KEEP_COMPLETED_AD_MSG_')) {
+    const propId = parseInt(data.replace('KEEP_COMPLETED_AD_MSG_', ''), 10);
+    await ctx.answerCbQuery();
+    if (isNaN(propId)) return;
+
+    try {
+      const prop = await prisma.proposal.findUnique({
+        where: { id: propId },
+        include: { creator: true }
+      });
+
+      if (!prop) {
+        await ctx.reply('⚠️ آگهی یافت نشد.');
+        return;
+      }
+
+      if (prop.creator.telegramId !== from.id.toString()) {
+        await ctx.reply('⚠️ شما مجاز به انجام این عملیات نیستید.');
+        return;
+      }
+
+      await ctx.editMessageText('👌 پیام آگهی در گروه باقی خواهد ماند.').catch(() => {});
+    } catch (err) {
+      console.error('Error keeping completed ad group message:', err);
+    }
+    return;
+  }
+
   // USER SETTINGS CALLBACKS
   if (data === 'USER_CLOSE_SETTINGS') {
     await ctx.answerCbQuery();
@@ -644,7 +744,7 @@ bot.on('callback_query', async (ctx) => {
         }
       });
 
-      // 2. Mark them CANCELLED in DB and update group messages
+      // 2. Mark them CANCELLED in DB and delete group messages
       for (const prop of activeProps) {
         await prisma.proposal.update({
           where: { id: prop.id },
@@ -652,7 +752,36 @@ bot.on('callback_query', async (ctx) => {
         });
 
         if (prop.groupMessageId) {
-          await updateGroupProposalMessage(ctx.telegram, prop.id);
+          await ctx.telegram.deleteMessage(config.GROUP_CHAT_ID, prop.groupMessageId).catch(err => {
+            console.error('Failed to delete group message during user deactivation:', err);
+          });
+        }
+
+        // Notify other users who had counter-offers on this proposal
+        const pendingOffers = await prisma.counterOffer.findMany({
+          where: {
+            proposalId: prop.id,
+            status: 'PENDING'
+          },
+          include: { proposer: true }
+        });
+
+        await prisma.counterOffer.updateMany({
+          where: {
+            proposalId: prop.id,
+            status: 'PENDING'
+          },
+          data: { status: 'REJECTED' }
+        });
+
+        const notifyMsg = 
+          `⚠️ **اطلاعیه لغو آگهی**\n\n` +
+          `کاربر گرامی، آگهی کد <code>${prop.code ?? prop.id}</code> (${prop.amount.toLocaleString('fa-IR')} ${prop.currency}) که شما روی آن پیشنهاد قیمت ثبت کرده بودید، لغو گردید.\n` +
+          `در نتیجه پیشنهاد قیمت شما نیز به صورت خودکار ملغی شد.`;
+
+        for (const offer of pendingOffers) {
+          await ctx.telegram.sendMessage(offer.proposer.telegramId, notifyMsg, { parse_mode: 'HTML' })
+            .catch(err => console.error(err));
         }
       }
 
@@ -2300,6 +2429,24 @@ bot.on('callback_query', async (ctx) => {
         return;
       }
 
+      // Fetch all pending counter-offers on this proposal
+      const pendingOffers = await prisma.counterOffer.findMany({
+        where: {
+          proposalId: propId,
+          status: 'PENDING'
+        },
+        include: { proposer: true }
+      });
+
+      // Mark those counter-offers as REJECTED in database
+      await prisma.counterOffer.updateMany({
+        where: {
+          proposalId: propId,
+          status: 'PENDING'
+        },
+        data: { status: 'REJECTED' }
+      });
+
       // Update state in database
       await prisma.proposal.update({
         where: { id: propId },
@@ -2309,9 +2456,22 @@ bot.on('callback_query', async (ctx) => {
       await ctx.reply('✅ پیشنهاد شما با موفقیت لغو شد.');
       await ctx.deleteMessage().catch(() => {});
 
-      // Update the message in the group to show it is cancelled
+      // Delete group message completely
       if (prop.groupMessageId) {
-        await updateGroupProposalMessage(ctx.telegram, prop.id);
+        await ctx.telegram.deleteMessage(config.GROUP_CHAT_ID, prop.groupMessageId).catch(err => {
+          console.error('Failed to delete group message during ad cancel callback:', err);
+        });
+      }
+
+      // Notify counter-offerers
+      const notifyMsg = 
+        `⚠️ **اطلاعیه لغو آگهی**\n\n` +
+        `کاربر گرامی، آگهی کد <code>${prop.code ?? prop.id}</code> (${prop.amount.toLocaleString('fa-IR')} ${prop.currency}) که شما روی آن پیشنهاد قیمت ثبت کرده بودید، توسط آگهی‌دهنده لغو و حذف گردید.\n` +
+        `در نتیجه پیشنهاد قیمت شما نیز به صورت خودکار ملغی شد.`;
+
+      for (const offer of pendingOffers) {
+        await ctx.telegram.sendMessage(offer.proposer.telegramId, notifyMsg, { parse_mode: 'HTML' })
+          .catch(err => console.error(`Failed to notify proposer ${offer.proposer.telegramId} of deleted ad:`, err));
       }
 
     } catch (error) {
@@ -2613,8 +2773,11 @@ bot.on('callback_query', async (ctx) => {
         `لطفاً مبلغ کل معامله را به شماره حساب ادمین واریز نموده و تصویر فیش واریزی را از طریق دکمه **«📤 ارسال فیش واریزی»** در منوی اصلی ارسال کنید.\n` +
         `👉 ارتباط با ادمین جهت دریافت شماره حساب: @${config.ADMIN_USERNAME}`;
 
-      await ctx.telegram.sendMessage(buyer.telegramId, buyerMsg, { parse_mode: 'HTML' })
-        .catch(err => console.error('Failed to notify buyer of admin approval:', err));
+      const buyerKb = await getMainKeyboard(buyer.telegramId);
+      await ctx.telegram.sendMessage(buyer.telegramId, buyerMsg, {
+        parse_mode: 'HTML',
+        ...buyerKb
+      }).catch(err => console.error('Failed to notify buyer of admin approval:', err));
 
       // Notify Seller
       const sellerMsg = 
@@ -2626,8 +2789,11 @@ bot.on('callback_query', async (ctx) => {
         `ابتدا خریدار باید وجه ریالی را به حساب ادمین واریز کند. پس از واریز خریدار و تایید نهایی آن توسط مدیریت، پیامی برای شما ارسال می‌شود تا مقدار کرون مورد نظر را به حساب خریدار واریز کرده و فیش آن را ارسال نمایید.\n` +
         `تا آن زمان نیاز به اقدامی از سمت شما نیست.`;
 
-      await ctx.telegram.sendMessage(seller.telegramId, sellerMsg, { parse_mode: 'HTML' })
-        .catch(err => console.error('Failed to notify seller of admin approval:', err));
+      const sellerKb = await getMainKeyboard(seller.telegramId);
+      await ctx.telegram.sendMessage(seller.telegramId, sellerMsg, {
+        parse_mode: 'HTML',
+        ...sellerKb
+      }).catch(err => console.error('Failed to notify seller of admin approval:', err));
 
       // Update admin message
       await ctx.editMessageText(`✅ معامله #${dealId} تایید اولیه شد. در انتظار واریز خریدار.`).catch(() => {});
@@ -2676,10 +2842,14 @@ bot.on('callback_query', async (ctx) => {
         : `<a href="tg://user?id=${buyer.telegramId}">${buyer.firstName}</a>`;
 
       // Notify Buyer
+      const buyerKb = await getMainKeyboard(buyer.telegramId);
       await ctx.telegram.sendMessage(
         buyer.telegramId,
         `✅ فیش واریزی ریالی شما توسط مدیریت تایید شد. منتظر واریز کرون توسط فروشنده باشید.`,
-        { parse_mode: 'HTML' }
+        {
+          parse_mode: 'HTML',
+          ...buyerKb
+        }
       ).catch(err => console.error(err));
 
       // Notify Seller
@@ -2687,12 +2857,18 @@ bot.on('callback_query', async (ctx) => {
         `🔔 **خریدار مبلغ معامله را به حساب ادمین واریز کرد و مورد تایید قرار گرفت.**\n\n` +
         `اکنون نوبت شماست که مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} را به حساب خریدار واریز کرده و تصویر فیش واریزی آن را از طریق دکمه **«📤 ارسال فیش واریزی»** در زیر منوی اصلی ارسال نمایید.\n\n` +
         `👤 **خریدار:** ${buyerContact}\n` +
-        `👉 ارتباط با خریدار/ادمین جهت دریافت اطلاعات حساب خریدار: @${config.ADMIN_USERNAME}`;
+        `📋 **اطلاعات حساب خریدار جهت واریز کرون:**\n` +
+        `<code>${deal.buyerPaymentInfo ?? 'ثبت نشده'}</code>\n\n` +
+        `👉 ارتباط با ادمین جهت راهنمایی: @${config.ADMIN_USERNAME}`;
 
+      const sellerKb = await getMainKeyboard(seller.telegramId);
       await ctx.telegram.sendMessage(
         seller.telegramId,
         sellerNotifyMsg,
-        { parse_mode: 'HTML' }
+        {
+          parse_mode: 'HTML',
+          ...sellerKb
+        }
       ).catch(err => console.error(err));
 
       await ctx.editMessageText(`✅ فیش واریز خریدار تایید شد. معامله #${dealId} در انتظار واریز کرون فروشنده.`).catch(() => {});
@@ -2731,11 +2907,15 @@ bot.on('callback_query', async (ctx) => {
       const isProposalBuy = deal.proposal.type === 'BUY';
       const buyer = isProposalBuy ? deal.proposal.creator : deal.acceptor;
 
+      const buyerKb = await getMainKeyboard(buyer.telegramId);
       await ctx.telegram.sendMessage(
         buyer.telegramId,
         `❌ **فیش واریز ریالی شما توسط مدیریت رد شد.**\n\n` +
         `لطفاً مجدداً بررسی نموده و فیش معتبر را از طریق دکمه **«📤 ارسال فیش واریزی»** ارسال نمایید.`,
-        { parse_mode: 'HTML' }
+        {
+          parse_mode: 'HTML',
+          ...buyerKb
+        }
       ).catch(err => console.error(err));
 
       await ctx.editMessageText(`❌ فیش واریز خریدار برای معامله #${dealId} رد شد.`).catch(() => {});
@@ -2837,8 +3017,11 @@ bot.on('callback_query', async (ctx) => {
         `👤 **فروشنده:** ${sellerContact}\n\n` +
         `با تشکر از معامله شما!`;
 
-      await ctx.telegram.sendMessage(buyer.telegramId, buyerCompletedMsg, { parse_mode: 'HTML' })
-        .catch(err => console.error(err));
+      const buyerKb = await getMainKeyboard(buyer.telegramId);
+      await ctx.telegram.sendMessage(buyer.telegramId, buyerCompletedMsg, {
+        parse_mode: 'HTML',
+        ...buyerKb
+      }).catch(err => console.error(err));
 
       // Notify Seller
       const sellerCompletedMsg =
@@ -2848,13 +3031,34 @@ bot.on('callback_query', async (ctx) => {
         `👤 **خریدار:** ${buyerContact}\n\n` +
         `با تشکر از معامله شما!`;
 
-      await ctx.telegram.sendMessage(seller.telegramId, sellerCompletedMsg, { parse_mode: 'HTML' })
-        .catch(err => console.error(err));
+      const sellerKb = await getMainKeyboard(seller.telegramId);
+      await ctx.telegram.sendMessage(seller.telegramId, sellerCompletedMsg, {
+        parse_mode: 'HTML',
+        ...sellerKb
+      }).catch(err => console.error(err));
 
       await ctx.editMessageText(`✅ فیش انتقال فروشنده تایید و معامله #${dealId} تکمیل نهایی شد.`).catch(() => {});
 
       // Update group message
       await updateGroupProposalMessage(ctx.telegram, deal.proposalId);
+
+      // Send proposal completion and delete prompt to proposal creator
+      if (result.updatedProposal.status === 'COMPLETED') {
+        const creatorMsg = 
+          `🎉 **تبریک! آگهی شما به طور کامل تکمیل و بسته شد.**\n\n` +
+          `آگهی کد <code>${result.updatedProposal.code ?? result.updatedProposal.id}</code> با موفقیت تکمیل شد.\n` +
+          `❓ آیا مایل هستید پیام این آگهی از گروه معاملاتی حذف شود؟`;
+
+        await ctx.telegram.sendMessage(deal.proposal.creator.telegramId, creatorMsg, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback('🗑️ بله، از گروه حذف شود', `DELETE_COMPLETED_AD_MSG_${result.updatedProposal.id}`),
+              Markup.button.callback('❌ خیر، باقی بماند', `KEEP_COMPLETED_AD_MSG_${result.updatedProposal.id}`)
+            ]
+          ])
+        }).catch(err => console.error('Failed to send proposal completion deletion prompt:', err));
+      }
     } catch (err) {
       console.error(err);
       await ctx.reply('❌ خطا در تایید فیش فروشنده.');
@@ -2890,11 +3094,15 @@ bot.on('callback_query', async (ctx) => {
       const isProposalBuy = deal.proposal.type === 'BUY';
       const seller = isProposalBuy ? deal.acceptor : deal.proposal.creator;
 
+      const sellerKb = await getMainKeyboard(seller.telegramId);
       await ctx.telegram.sendMessage(
         seller.telegramId,
         `❌ **فیش انتقال کرون شما توسط مدیریت رد شد.**\n\n` +
         `لطفاً مجدداً بررسی نموده و فیش معتبر را از طریق دکمه **«📤 ارسال فیش واریزی»** ارسال نمایید.`,
-        { parse_mode: 'HTML' }
+        {
+          parse_mode: 'HTML',
+          ...sellerKb
+        }
       ).catch(err => console.error(err));
 
       await ctx.editMessageText(`❌ فیش انتقال فروشنده برای معامله #${dealId} رد شد.`).catch(() => {});
@@ -2991,7 +3199,8 @@ bot.on('callback_query', async (ctx) => {
         `❌ **معامله مربوط به آگهی #${deal.proposalId} توسط مدیریت تایید نهایی نشد و رد گردید.**\n\n` +
         `🔄 آگهی شما مجدداً در گروه فعال و دکمه قبول پیشنهاد بازگردانده شد.`;
 
-      await ctx.telegram.sendMessage(deal.proposal.creator.telegramId, creatorMsg)
+      const creatorKb = await getMainKeyboard(deal.proposal.creator.telegramId);
+      await ctx.telegram.sendMessage(deal.proposal.creator.telegramId, creatorMsg, { ...creatorKb })
         .catch(err => console.error('Failed to notify creator of rejection:', err));
 
       // Notify Acceptor/Proposer
@@ -2999,8 +3208,11 @@ bot.on('callback_query', async (ctx) => {
         `❌ **معامله شما توسط مدیریت تایید نهایی نشد و لغو گردید.**\n\n` +
         `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت ${agreedPrice.toLocaleString('fa-IR')} تومان`;
 
-      await ctx.telegram.sendMessage(deal.acceptor.telegramId, acceptorMsg, { parse_mode: 'HTML' })
-        .catch(err => console.error('Failed to notify acceptor of rejection:', err));
+      const acceptorKb = await getMainKeyboard(deal.acceptor.telegramId);
+      await ctx.telegram.sendMessage(deal.acceptor.telegramId, acceptorMsg, {
+        parse_mode: 'HTML',
+        ...acceptorKb
+      }).catch(err => console.error('Failed to notify acceptor of rejection:', err));
 
       // Update admin message
       await ctx.editMessageText(`❌ معامله #${dealId} رد شد.`).catch(() => {});
