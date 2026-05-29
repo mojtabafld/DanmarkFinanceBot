@@ -111,6 +111,8 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
           `👤 **فروشنده گرامی**\n\n` +
           `خریدار وجه ریالی را واریز و مدیریت آن را تایید کرده است.\n` +
           `لطفاً مقدار <code>${activeDeal.amount.toLocaleString('fa-IR')}</code> ${activeDeal.proposal.currency} را به حساب خریدار واریز کرده و تصویر فیش واریزی را ارسال کنید.\n\n` +
+          `📋 **اطلاعات حساب خریدار جهت واریز کرون:**\n` +
+          `<code>${activeDeal.buyerPaymentInfo ?? 'ثبت نشده'}</code>\n\n` +
           `📌 **جزئیات معامله:**\n` +
           `🔹 آگهی کد <code>${activeDeal.proposal.code ?? activeDeal.proposal.id}</code>\n` +
           `🔹 نرخ توافقی: <code>${agreedPrice.toLocaleString('fa-IR')}</code> تومان\n` +
@@ -140,8 +142,28 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         return ctx.scene.leave();
       }
 
-      if (text.length < 3) {
-        await ctx.reply('⚠️ لطفاً اطلاعات حساب معتبری وارد کنید:');
+      const normalized = text.toLowerCase();
+      const keywords = [
+        'revolut', 'رولوت',
+        'mobilepay', 'mobile pay', 'mobilpay', 'mobil pay', 'موبایل پی', 'موبایل‌پی', 'موبیل پی', 'موبیل‌پی',
+        'حساب', 'کارت', 'شبا', 'iban', 'card', 'account', 'شماره', 'بانک', 'bank'
+      ];
+      const hasKeyword = keywords.some(kw => normalized.includes(kw));
+      const hasDigits = /\d{8,}/.test(normalized) || (normalized.includes('dk') && /\d{4,}/.test(normalized));
+
+      if (text.length < 5 || (!hasKeyword && !hasDigits)) {
+        await ctx.reply(
+          `⚠️ **خطا در قالب اطلاعات ارسالی!**\n\n` +
+          `اطلاعات وارد شده باید معتبر بوده و مشخصاً حاوی اطلاعات یکی از موارد زیر باشد:\n` +
+          `• **حساب رولوت (Revolut)**\n` +
+          `• **شماره موبایل‌پی (MobilePay)**\n` +
+          `• **شماره حساب/کارت یا شبا (IBAN) دانمارک**\n\n` +
+          `✍️ لطفاً اطلاعات معتبر را وارد کنید (مثال: "رولوت: @username" یا "موبایل‌پی: 12345678"):`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+          }
+        );
         return;
       }
 
@@ -251,7 +273,9 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
             `👤 <b>فروشنده:</b> ${sellerMention}\n` +
             `🔹 <b>مقدار انتقال:</b> <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency}\n` +
             `🔹 <b>آگهی مربوطه:</b> کد ${deal.proposal.code ?? deal.proposalId}\n` +
-            `🔹 <b>مبلغ کل معامله:</b> <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n\n` +
+            `🔹 <b>مبلغ کل معامله:</b> <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
+            `📌 **اطلاعات حساب خریدار جهت تطبیق:**\n` +
+            `<code>${deal.buyerPaymentInfo ?? 'ثبت نشده'}</code>\n\n` +
             `❓ آیا فیش انتقال فروشنده مورد تایید است؟`;
 
           await ctx.telegram.sendPhoto(config.ADMIN_CHAT_ID, fileId, {
