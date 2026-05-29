@@ -9,6 +9,7 @@ interface ReceiptState {
   agreedPrice?: number;
   totalValue?: number;
   buyerPaymentInfo?: string;
+  paymentMethod?: 'REVOLUT' | 'DENMARK_BANK' | 'MOBILEPAY';
 }
 
 export interface MyReceiptContext extends Scenes.WizardContext {
@@ -90,6 +91,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
       ctx.wizard.state.totalValue = totalValue;
 
       if (role === 'BUYER') {
+        // Send a persistent cancel keyboard first to allow cancellation at any point
         await ctx.reply(
           `👤 **خریدار گرامی**\n\n` +
           `لطفاً مبلغ کل معامله به ارزش <code>${totalValue.toLocaleString('fa-IR')}</code> تومان را به حساب ادمین واریز نمایید:\n\n` +
@@ -98,11 +100,23 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
           `📌 **جزئیات معامله:**\n` +
           `🔹 آگهی کد <code>${activeDeal.proposal.code ?? activeDeal.proposal.id}</code>\n` +
           `🔹 مقدار معامله: <code>${activeDeal.amount.toLocaleString('fa-IR')}</code> ${activeDeal.proposal.currency}\n` +
-          `🔹 نرخ توافقی: <code>${agreedPrice.toLocaleString('fa-IR')}</code> تومان\n\n` +
-          `✍️ **لطفاً شماره حساب رولوت (Revolut)، حساب بانکی دانمارک یا شماره موبایل‌پی (MobilePay) خود را جهت واریز کرون توسط فروشنده وارد کنید:**`,
+          `🔹 نرخ توافقی: <code>${agreedPrice.toLocaleString('fa-IR')}</code> تومان`,
+          Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+        );
+
+        await ctx.reply(
+          `👇 **لطفاً ابتدا نوع حساب خود جهت دریافت کرون از فروشنده را انتخاب کنید:**`,
           {
             parse_mode: 'HTML',
-            ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+            ...Markup.inlineKeyboard([
+              [
+                Markup.button.callback('💳 حساب رولوت (Revolut)', 'PAY_METHOD_REVOLUT'),
+                Markup.button.callback('📱 موبایل‌پی (MobilePay)', 'PAY_METHOD_MOBILEPAY')
+              ],
+              [
+                Markup.button.callback('🇩🇰 حساب بانکی دانمارک', 'PAY_METHOD_BANK')
+              ]
+            ])
           }
         );
         return ctx.wizard.next();
@@ -135,6 +149,61 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
 
   // Step 2: Handle Buyer Payment Info (Revolut, Denmark Bank Account or MobilePay)
   async (ctx) => {
+    // Check for inline button callbacks
+    if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
+      const data = ctx.callbackQuery.data;
+      await ctx.answerCbQuery().catch(() => {});
+
+      if (data === 'PAY_METHOD_REVOLUT') {
+        ctx.wizard.state.paymentMethod = 'REVOLUT';
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.reply(
+          `💳 **روش انتخابی: حساب رولوت (Revolut)**\n\n` +
+          `لطفاً اطلاعات حساب رولوت خود را طبق الگوی زیر ارسال کنید:\n` +
+          `• <code>رولوت: @username</code>\n` +
+          `• <code>رولوت: +4512345678</code>\n\n` +
+          `✍️ اطلاعات را به صورت متنی تایپ و ارسال کنید:`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+          }
+        );
+        return; // stay on Step 2 to wait for text input
+      }
+
+      if (data === 'PAY_METHOD_BANK') {
+        ctx.wizard.state.paymentMethod = 'DENMARK_BANK';
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.reply(
+          `🇩🇰 **روش انتخابی: حساب بانکی دانمارک**\n\n` +
+          `لطفاً اطلاعات حساب خود را شامل نام بانک، کد رجیستر (Reg) و شماره حساب طبق الگوی زیر ارسال کنید:\n` +
+          `• <code>بانک: [نام بانک] - رجیستر: [کد Reg] - حساب: [شماره حساب]</code>\n\n` +
+          `✍️ اطلاعات را به صورت متنی تایپ و ارسال کنید:`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+          }
+        );
+        return; // stay on Step 2 to wait for text input
+      }
+
+      if (data === 'PAY_METHOD_MOBILEPAY') {
+        ctx.wizard.state.paymentMethod = 'MOBILEPAY';
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.reply(
+          `📱 **روش انتخابی: موبایل‌پی (MobilePay)**\n\n` +
+          `لطفاً شماره موبایل‌پی خود را (شماره تلفن ۸ رقمی دانمارک) طبق الگوی زیر ارسال کنید:\n` +
+          `• <code>موبایل‌پی: 12345678</code>\n\n` +
+          `✍️ اطلاعات را به صورت متنی تایپ و ارسال کنید:`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+          }
+        );
+        return; // stay on Step 2 to wait for text input
+      }
+    }
+
     if (ctx.message && 'text' in ctx.message) {
       const text = ctx.message.text.trim();
       if (text === '❌ انصراف' || text === '/cancel') {
@@ -142,28 +211,62 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         return ctx.scene.leave();
       }
 
-      const normalized = text.toLowerCase();
-      const keywords = [
-        'revolut', 'رولوت',
-        'mobilepay', 'mobile pay', 'mobilpay', 'mobil pay', 'موبایل پی', 'موبایل‌پی', 'موبیل پی', 'موبیل‌پی',
-        'حساب', 'کارت', 'شبا', 'iban', 'card', 'account', 'شماره', 'بانک', 'bank'
-      ];
-      const hasKeyword = keywords.some(kw => normalized.includes(kw));
-      const hasDigits = /\d{8,}/.test(normalized) || (normalized.includes('dk') && /\d{4,}/.test(normalized));
-
-      if (text.length < 5 || (!hasKeyword && !hasDigits)) {
+      const method = ctx.wizard.state.paymentMethod;
+      if (!method) {
         await ctx.reply(
-          `⚠️ **خطا در قالب اطلاعات ارسالی!**\n\n` +
-          `اطلاعات وارد شده باید معتبر بوده و مشخصاً حاوی اطلاعات یکی از موارد زیر باشد:\n` +
-          `• **حساب رولوت (Revolut)**\n` +
-          `• **شماره موبایل‌پی (MobilePay)**\n` +
-          `• **شماره حساب/کارت یا شبا (IBAN) دانمارک**\n\n` +
-          `✍️ لطفاً اطلاعات معتبر را وارد کنید (مثال: "رولوت: @username" یا "موبایل‌پی: 12345678"):`,
+          `⚠️ **لطفاً ابتدا یکی از روش‌های دریافت کرون را از دکمه‌های شیشه‌ای زیر انتخاب کنید:**`,
           {
             parse_mode: 'HTML',
-            ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+            ...Markup.inlineKeyboard([
+              [
+                Markup.button.callback('💳 حساب رولوت (Revolut)', 'PAY_METHOD_REVOLUT'),
+                Markup.button.callback('📱 موبایل‌پی (MobilePay)', 'PAY_METHOD_MOBILEPAY')
+              ],
+              [
+                Markup.button.callback('🇩🇰 حساب بانکی دانمارک', 'PAY_METHOD_BANK')
+              ]
+            ])
           }
         );
+        return;
+      }
+
+      const normalized = text.toLowerCase();
+      let isValid = false;
+      let errorMsg = '';
+
+      if (method === 'REVOLUT') {
+        const hasRevolut = normalized.includes('revolut') || normalized.includes('رولوت') || normalized.includes('@');
+        isValid = hasRevolut && text.length >= 4;
+        errorMsg = 
+          `⚠️ **خطا در قالب اطلاعات رولوت!**\n\n` +
+          `اطلاعات وارد شده باید معتبر بوده و شامل عبارت "رولوت" یا علامت "@" باشد.\n` +
+          `الگو: <code>رولوت: @username</code>\n\n` +
+          `✍️ لطفاً مجدداً اطلاعات صحیح را وارد کنید:`;
+      } else if (method === 'DENMARK_BANK') {
+        const hasBank = normalized.includes('bank') || normalized.includes('بانک') || normalized.includes('حساب') || normalized.includes('reg') || normalized.includes('رجیستر');
+        const hasDigits = /\d{4,}/.test(normalized);
+        isValid = hasBank && hasDigits && text.length >= 8;
+        errorMsg = 
+          `⚠️ **خطا در قالب اطلاعات حساب بانکی!**\n\n` +
+          `اطلاعات وارد شده باید شامل نام بانک/کد رجیستر و شماره حساب باشد.\n` +
+          `الگو: <code>بانک: Mellat - رجیستر: 1234 - حساب: 12345678</code>\n\n` +
+          `✍️ لطفاً مجدداً اطلاعات صحیح را وارد کنید:`;
+      } else if (method === 'MOBILEPAY') {
+        const hasDigits = /\d{8,}/.test(normalized);
+        isValid = hasDigits && text.length >= 8;
+        errorMsg = 
+          `⚠️ **خطا در قالب شماره موبایل‌پی!**\n\n` +
+          `شماره موبایل‌پی باید حداقل شامل یک شماره ۸ رقمی باشد.\n` +
+          `الگو: <code>موبایل‌پی: 12345678</code>\n\n` +
+          `✍️ لطفاً مجدداً اطلاعات صحیح را وارد کنید:`;
+      }
+
+      if (!isValid) {
+        await ctx.reply(errorMsg, {
+          parse_mode: 'HTML',
+          ...Markup.keyboard([['❌ انصراف']]).resize().oneTime()
+        });
         return;
       }
 
@@ -181,7 +284,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
       return ctx.wizard.next();
     }
 
-    await ctx.reply('⚠️ لطفاً اطلاعات حساب خود را به صورت متنی ارسال کنید:');
+    await ctx.reply('⚠️ لطفاً اطلاعات حساب خود را به صورت متنی ارسال کنید یا دکمه مورد نظر را کلیک کنید:');
   },
 
   // Step 3: Handle photo upload and send to admin
@@ -294,7 +397,8 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         return ctx.scene.leave();
       } catch (err) {
         console.error('Error handling uploaded receipt photo:', err);
-        await ctx.reply('❌ خطا در فرآیند ارسال فیش به مدیریت.', mainKeyboard);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        await ctx.reply(`❌ خطا در فرآیند ارسال فیش به مدیریت.\n\n⚠️ **علت خطا:** <code>${errMsg}</code>`, mainKeyboard);
         return ctx.scene.leave();
       }
     }
