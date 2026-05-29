@@ -49,7 +49,8 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
   CREATE_PROPOSAL_SCENE_ID,
   // Step 1: Select Buy or Sell
   async (ctx) => {
-    ctx.wizard.state = {};
+    ctx.scene.state = {};
+    ctx.wizard.state = ctx.scene.state;
     const from = ctx.from;
     if (!from) {
       await ctx.reply('خطایی رخ داد. اطلاعات کاربری شما یافت نشد.');

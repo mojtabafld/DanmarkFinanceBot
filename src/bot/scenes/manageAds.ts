@@ -122,7 +122,8 @@ export const manageAdsWizard = new Scenes.WizardScene<MyManageAdsContext>(
 
   // Step 1: Display Menu & Handle Keyboard Buttons
   async (ctx) => {
-    ctx.wizard.state = {};
+    ctx.scene.state = {};
+    ctx.wizard.state = ctx.scene.state;
     if (ctx.message && 'text' in ctx.message) {
       return handleMenuText(ctx);
     }

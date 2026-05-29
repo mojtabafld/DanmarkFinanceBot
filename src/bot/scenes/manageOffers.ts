@@ -107,7 +107,8 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
       }
     }
 
-    ctx.wizard.state = {};
+    ctx.scene.state = {};
+    ctx.wizard.state = ctx.scene.state;
     return listOffers(ctx);
   },
 

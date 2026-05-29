@@ -21,7 +21,8 @@ export const requestLimitIncreaseWizard = new Scenes.WizardScene<MyLimitContext>
 
   // Step 1: Prompt for message
   async (ctx) => {
-    ctx.wizard.state = {};
+    ctx.scene.state = {};
+    ctx.wizard.state = ctx.scene.state;
     const from = ctx.from;
     if (!from) return ctx.scene.leave();
 

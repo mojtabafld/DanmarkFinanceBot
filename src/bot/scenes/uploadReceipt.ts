@@ -25,7 +25,8 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
 
   // Step 1: Check active deals and ask for payment info (buyer) or jump to photo upload (seller)
   async (ctx) => {
-    ctx.wizard.state = {};
+    ctx.scene.state = {};
+    ctx.wizard.state = ctx.scene.state;
     const from = ctx.from;
     if (!from) return ctx.scene.leave();
 

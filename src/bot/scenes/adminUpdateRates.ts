@@ -22,7 +22,8 @@ export const adminUpdateRatesWizard = new Scenes.WizardScene<MyRatesWizardContex
 
   // Step 1: Prompt for DKK rate
   async (ctx) => {
-    ctx.wizard.state = {};
+    ctx.scene.state = {};
+    ctx.wizard.state = ctx.scene.state;
     const from = ctx.from;
     if (!from || from.id.toString() !== config.ADMIN_CHAT_ID.toString()) {
       await ctx.reply('⚠️ شما مجاز به استفاده از این سناریو نیستید.');

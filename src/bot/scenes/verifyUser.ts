@@ -25,7 +25,8 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
   
   // Step 1: Start & Ask for Full Name (Requires Username)
   async (ctx) => {
-    ctx.wizard.state = {};
+    ctx.scene.state = {};
+    ctx.wizard.state = ctx.scene.state;
     
     // Check if user has a username
     if (!ctx.from || !ctx.from.username) {
