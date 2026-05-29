@@ -357,7 +357,12 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
       // If mode is CUSTOM, prompt for custom price per unit
       if (mode === 'CUSTOM') {
         const firstOffer = await prisma.counterOffer.findFirst({
-          where: { proposalId: proposalId },
+          where: {
+            proposalId: proposalId,
+            createdAt: {
+              gt: proposal.editedAt ?? new Date(0)
+            }
+          },
           orderBy: { createdAt: 'asc' }
         });
         
@@ -440,8 +445,8 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
           return ctx.scene.leave();
         }
         
-        // Enforce that proposed price does not exceed the ad's price
-        if (price > proposal.price) {
+        // Enforce that proposed price does not exceed the ad's price (Only for SELL ads, as BUY ads can have higher offers)
+        if (proposal.type === 'SELL' && price > proposal.price) {
           await ctx.reply(`⚠️ قیمت پیشنهادی شما (${price.toLocaleString('fa-IR')} تومان) نباید بیشتر از قیمت ثبت شده در آگهی اصلی (${proposal.price.toLocaleString('fa-IR')} تومان) باشد. لطفا مجددا وارد کنید:`);
           return;
         }
