@@ -164,11 +164,11 @@ export async function maskImage(fileUrl: string): Promise<Buffer> {
       .toBuffer();
 
   } catch (err) {
-    console.error('OCR/Masking failed, falling back to original image:', err);
+    console.error('OCR/Masking failed critically:', err);
     // Cleanup temporary file in case of error
     if (tempInputPath) {
       try { fs.unlinkSync(tempInputPath); } catch {}
     }
-    return imageBuffer;
+    throw new Error('OCR document processing failed. Image masking could not be verified safely.');
   }
 }

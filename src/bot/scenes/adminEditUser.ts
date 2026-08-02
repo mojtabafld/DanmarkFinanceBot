@@ -108,7 +108,7 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
         return ctx.scene.leave();
       }
       
-      let newStatus = '';
+      let newStatus: 'APPROVED' | 'PENDING' | 'REJECTED' | '' = '';
       if (data === 'EDIT_STATUS_SET_APPROVED') newStatus = 'APPROVED';
       else if (data === 'EDIT_STATUS_SET_PENDING') newStatus = 'PENDING';
       else if (data === 'EDIT_STATUS_SET_REJECTED') newStatus = 'REJECTED';

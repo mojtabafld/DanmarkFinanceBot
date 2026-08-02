@@ -7,73 +7,113 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  APPROVED
+  REJECTED
+  DEACTIVATED
+  DELETED
+}
+
+enum ProposalType {
+  BUY
+  SELL
+}
+
+enum ProposalStatus {
+  PENDING
+  PENDING_APPROVAL
+  COMPLETED
+  CANCELLED
+  LOCKED
+  CANCELLED_BY_ADMIN
+}
+
+enum DealStatus {
+  PENDING
+  PENDING_ADMIN
+  WAITING_BUYER_PAYMENT
+  WAITING_SELLER_PAYMENT
+  BUYER_PAID_PENDING_APPROVAL
+  SELLER_PAID_PENDING_APPROVAL
+  COMPLETED
+  REJECTED
+}
+
+enum CounterOfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model User {
-  id                     Int        @id @default(autoincrement())
-  telegramId             String     @unique // Stored as string to prevent overflow/serialization issues
+  id                     Int                @id @default(autoincrement())
+  telegramId             String             @unique // Stored as string to prevent overflow/serialization issues
   username               String?
   firstName              String
   lastName               String?
-  verificationStatus     String     @default("UNVERIFIED") // UNVERIFIED, PENDING, APPROVED, REJECTED
+  verificationStatus     VerificationStatus @default(UNVERIFIED)
   fullName               String?
   country                String?
   phoneNumber            String?
   documentFileId         String?
   rejectReason           String?
-  dailyProposalLimit     Int        @default(5)
-  hasPendingLimitRequest Boolean    @default(false)
+  dailyProposalLimit     Int                @default(5)
+  hasPendingLimitRequest Boolean            @default(false)
   adminVerifyMsgId       Int?
   adminVerifyPhotoId     Int?
-  createdAt              DateTime   @default(now())
-  updatedAt              DateTime   @updatedAt
-  proposals              Proposal[] @relation("UserProposals")
-  deals                  Deal[]     @relation("UserDeals")
-  counterOffers          CounterOffer[] @relation("UserCounterOffers")
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  proposals              Proposal[]         @relation("UserProposals")
+  deals                  Deal[]             @relation("UserDeals")
+  counterOffers          CounterOffer[]     @relation("UserCounterOffers")
 }
 
 model Proposal {
-  id             Int      @id @default(autoincrement())
+  id             Int            @id @default(autoincrement())
   creatorId      Int
-  creator        User     @relation("UserProposals", fields: [creatorId], references: [id], onDelete: Cascade)
-  type           String   // "BUY" or "SELL"
-  currency       String   // e.g. "USD", "EUR", "USDT"
+  creator        User           @relation("UserProposals", fields: [creatorId], references: [id], onDelete: Cascade)
+  type           ProposalType
+  currency       String         // e.g. "USD", "EUR", "USDT"
   amount         Float
-  price          Float    // Price per unit or total price
-  priceCurrency  String   // e.g. "Toman", "USD"
-  status         String   // "PENDING" (active), "COMPLETED", "CANCELLED"
-  groupMessageId Int?     // Message ID in the Telegram group to update status
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  price          Float          // Price per unit or total price
+  priceCurrency  String         // e.g. "Toman", "USD"
+  status         ProposalStatus @default(PENDING)
+  groupMessageId Int?           // Message ID in the Telegram group to update status
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
   deals          Deal[]
   counterOffers  CounterOffer[]
   
-  // New fields
-  code           String?
+  // Additional fields
+  code           String?        @unique
   paymentMethod  String?
   originalAmount Float?
   editedAt       DateTime?
 }
 
 model Deal {
-  id               Int      @id @default(autoincrement())
+  id               Int        @id @default(autoincrement())
   proposalId       Int
-  proposal         Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposal         Proposal   @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   acceptorId       Int
-  acceptor         User     @relation("UserDeals", fields: [acceptorId], references: [id], onDelete: Cascade)
-  status           String   // "PENDING", "COMPLETED", "REJECTED"
-  amount           Float    @default(0)
-  createdAt        DateTime @default(now())
+  acceptor         User       @relation("UserDeals", fields: [acceptorId], references: [id], onDelete: Cascade)
+  status           DealStatus @default(PENDING)
+  amount           Float      @default(0)
+  createdAt        DateTime   @default(now())
   buyerPaymentInfo String?
 }
 
 model CounterOffer {
-  id         Int      @id @default(autoincrement())
+  id         Int                @id @default(autoincrement())
   proposalId Int
-  proposal   Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposal   Proposal           @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   proposerId Int
-  proposer   User     @relation("UserCounterOffers", fields: [proposerId], references: [id], onDelete: Cascade)
+  proposer   User               @relation("UserCounterOffers", fields: [proposerId], references: [id], onDelete: Cascade)
   price      Float
-  amount     Float    @default(0)
-  status     String   // "PENDING", "ACCEPTED", "REJECTED"
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  amount     Float              @default(0)
+  status     CounterOfferStatus @default(PENDING)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
 }
