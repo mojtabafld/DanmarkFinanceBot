@@ -318,6 +318,17 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
           return ctx.scene.leave();
         }
 
+        if (
+          !ctx.wizard.state.type ||
+          !ctx.wizard.state.currency ||
+          !ctx.wizard.state.amount ||
+          !ctx.wizard.state.price ||
+          !ctx.wizard.state.paymentMethod
+        ) {
+          await ctx.reply('⚠️ نشست شما منقضی شده است. لطفا مجدداً فرآیند ثبت پیشنهاد را شروع کنید.', mainKeyboard);
+          return ctx.scene.leave();
+        }
+
         try {
           // 1. Get or create user in database
           let dbUser = await prisma.user.upsert({
@@ -342,12 +353,12 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
           const proposal = await prisma.proposal.create({
             data: {
               creatorId: dbUser.id,
-              type: ctx.wizard.state.type!,
-              currency: ctx.wizard.state.currency!,
-              amount: ctx.wizard.state.amount!,
-              originalAmount: ctx.wizard.state.amount!,
-              paymentMethod: ctx.wizard.state.paymentMethod!,
-              price: ctx.wizard.state.price!,
+              type: ctx.wizard.state.type,
+              currency: ctx.wizard.state.currency,
+              amount: ctx.wizard.state.amount,
+              originalAmount: ctx.wizard.state.amount,
+              paymentMethod: ctx.wizard.state.paymentMethod,
+              price: ctx.wizard.state.price,
               priceCurrency: 'تومان',
               status: 'PENDING_APPROVAL',
               code: code
@@ -374,19 +385,23 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
             `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(proposal.createdAt)}</code>\n\n` +
             `❓ آیا مایل به تایید این آگهی و ارسال آن به گروه هستید؟`;
 
-          await ctx.telegram.sendMessage(
-            config.ADMIN_CHAT_ID,
-            adminApprovalMsgText,
-            {
-              parse_mode: 'HTML',
-              ...Markup.inlineKeyboard([
-                [
-                  Markup.button.callback('✅ تایید آگهی', `ADMIN_PROP_APPROVE_${proposal.id}`),
-                  Markup.button.callback('❌ رد آگهی', `ADMIN_PROP_REJECT_${proposal.id}`)
-                ]
-              ])
-            }
-          ).catch(err => console.error('Failed to notify admin about approval request:', err));
+          if (config.ADMIN_CHAT_ID && !isNaN(config.ADMIN_CHAT_ID)) {
+            await ctx.telegram.sendMessage(
+              config.ADMIN_CHAT_ID,
+              adminApprovalMsgText,
+              {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([
+                  [
+                    Markup.button.callback('✅ تایید آگهی', `ADMIN_PROP_APPROVE_${proposal.id}`),
+                    Markup.button.callback('❌ رد آگهی', `ADMIN_PROP_REJECT_${proposal.id}`)
+                  ]
+                ])
+              }
+            ).catch(err => console.error('Failed to notify admin about approval request:', err));
+          } else {
+            console.error('ADMIN_CHAT_ID is invalid or NaN:', config.ADMIN_CHAT_ID);
+          }
 
           await ctx.reply(
             '✅ درخواست شما با موفقیت ثبت شد و پس از بررسی و تایید مدیریت در گروه منتشر خواهد شد.',
