@@ -24,16 +24,13 @@ export const CREATE_PROPOSAL_SCENE_ID = 'CREATE_PROPOSAL_SCENE';
 
 async function getNextAvailableCode(): Promise<string> {
   try {
-    const activeProposals = await prisma.proposal.findMany({
-      where: {
-        status: { in: ['PENDING', 'LOCKED'] }
-      },
+    const allProposals = await prisma.proposal.findMany({
       select: { code: true }
     });
     
-    const usedCodes = new Set(activeProposals.map(p => p.code).filter(Boolean));
+    const usedCodes = new Set(allProposals.map(p => p.code).filter(Boolean));
     
-    for (let i = 1; i <= 9999; i++) {
+    for (let i = 1; i <= 99999; i++) {
       const codeStr = i.toString().padStart(4, '0');
       if (!usedCodes.has(codeStr)) {
         return codeStr;
@@ -42,7 +39,7 @@ async function getNextAvailableCode(): Promise<string> {
   } catch (err) {
     console.error('Error allocating code:', err);
   }
-  return '0001';
+  return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
 export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
@@ -346,25 +343,37 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
             },
           });
 
-          // Allocate code
-          const code = await getNextAvailableCode();
+          // 2. Create the proposal in database with code allocation retry loop
+          let proposal;
+          let attempts = 0;
+          while (attempts < 5) {
+            try {
+              const code = await getNextAvailableCode();
+              proposal = await prisma.proposal.create({
+                data: {
+                  creatorId: dbUser.id,
+                  type: ctx.wizard.state.type,
+                  currency: ctx.wizard.state.currency,
+                  amount: ctx.wizard.state.amount,
+                  originalAmount: ctx.wizard.state.amount,
+                  paymentMethod: ctx.wizard.state.paymentMethod,
+                  price: ctx.wizard.state.price,
+                  priceCurrency: 'تومان',
+                  status: 'PENDING_APPROVAL',
+                  code: code
+                },
+                include: { creator: true }
+              });
+              break;
+            } catch (createErr: any) {
+              attempts++;
+              if (attempts >= 5) throw createErr;
+            }
+          }
 
-          // 2. Create the proposal in database
-          const proposal = await prisma.proposal.create({
-            data: {
-              creatorId: dbUser.id,
-              type: ctx.wizard.state.type,
-              currency: ctx.wizard.state.currency,
-              amount: ctx.wizard.state.amount,
-              originalAmount: ctx.wizard.state.amount,
-              paymentMethod: ctx.wizard.state.paymentMethod,
-              price: ctx.wizard.state.price,
-              priceCurrency: 'تومان',
-              status: 'PENDING_APPROVAL',
-              code: code
-            },
-            include: { creator: true }
-          });
+          if (!proposal) {
+            throw new Error('FAILED_TO_CREATE_PROPOSAL');
+          }
 
           // 3. Format message for the Admin approval request
           const typeHeader = proposal.type === 'BUY' ? '🟢 #خرید_ارز' : '🔴 #فروش_ارز';
