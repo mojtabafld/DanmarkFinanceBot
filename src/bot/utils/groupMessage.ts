@@ -2,10 +2,11 @@ import { Telegram, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 
-export function formatToShamsi(date: Date): string {
+export function formatToShamsi(date: Date, timeZone: string = process.env.TIMEZONE || 'Europe/Copenhagen'): string {
   try {
     const formatter = new Intl.DateTimeFormat('fa-IR', {
       calendar: 'persian',
+      timeZone: timeZone,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
