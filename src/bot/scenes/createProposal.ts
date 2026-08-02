@@ -2,7 +2,7 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
-import { updateGroupProposalMessage, formatToShamsi } from '../utils/groupMessage';
+import { updateGroupProposalMessage, formatToShamsi, getTimezoneByCountry } from '../utils/groupMessage';
 
 // Define the state interface
 interface ProposalState {
@@ -391,7 +391,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
             `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
             `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n` +
             `👤 <b>توسط:</b> ${userMention}\n` +
-            `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(proposal.createdAt)}</code>\n\n` +
+            `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(proposal.createdAt, getTimezoneByCountry(dbUser.country))}</code>\n\n` +
             `❓ آیا مایل به تایید این آگهی و ارسال آن به گروه هستید؟`;
 
           if (config.ADMIN_CHAT_ID && !isNaN(config.ADMIN_CHAT_ID)) {

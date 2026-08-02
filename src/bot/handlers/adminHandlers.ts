@@ -3,7 +3,7 @@ import { BotContext } from '../index';
 import { config } from '../../config';
 import { prisma } from '../../database/db';
 import { getMainKeyboard, mainKeyboard } from '../utils/keyboards';
-import { updateGroupProposalMessage, formatToShamsi } from '../utils/groupMessage';
+import { updateGroupProposalMessage, formatToShamsi, getTimezoneByCountry } from '../utils/groupMessage';
 import { ADMIN_SEARCH_SCENE_ID } from '../scenes/adminSearch';
 import { ADMIN_EDIT_USER_SCENE_ID, ADMIN_REJECT_USER_SCENE_ID } from '../scenes/adminEditUser';
 import { ADMIN_EDIT_PROP_SCENE_ID } from '../scenes/adminEditProp';
@@ -1206,7 +1206,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
           `🔹 <b>مبلغ کل:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
           `👤 <b>توسط:</b> ${userMention}\n` +
-          `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(prop.createdAt)}</code>\n\n` +
+          `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(prop.createdAt, getTimezoneByCountry(prop.creator.country))}</code>\n\n` +
           `ℹ️ برای ارسال پاسخ، قبول پیشنهاد یا گفتگو با ثبت‌کننده، روی دکمه زیر کلیک کنید:`;
 
         const deepLinkUrl = `https://t.me/${config.BOT_USERNAME}?start=deal_${prop.id}`;
@@ -1251,7 +1251,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           `🔹 <b>قیمت واحد:</b> <code>${updatedProp.price.toLocaleString('fa-IR')}</code> تومان\n` +
           `🔹 <b>مبلغ کل:</b> <code>${(updatedProp.amount * updatedProp.price).toLocaleString('fa-IR')}</code> تومان\n` +
           `👤 <b>توسط:</b> ${userMention}\n` +
-          `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(updatedProp.createdAt)}</code>\n\n` +
+          `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(updatedProp.createdAt, getTimezoneByCountry(updatedProp.creator.country))}</code>\n\n` +
           `⚙️ <b>دکمه‌های مدیریت پیشنهاد:</b>`;
 
         await ctx.telegram

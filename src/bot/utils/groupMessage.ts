@@ -2,6 +2,19 @@ import { Telegram, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 
+export function getTimezoneByCountry(country?: string | null): string {
+  if (!country) return process.env.TIMEZONE || 'Europe/Copenhagen';
+  const c = country.trim().toLowerCase();
+  if (c.includes('ایران') || c.includes('iran') || c === 'ir') return 'Asia/Tehran';
+  if (c.includes('دانمارک') || c.includes('denmark') || c === 'dk') return 'Europe/Copenhagen';
+  if (c.includes('آلمان') || c.includes('germany') || c === 'de') return 'Europe/Berlin';
+  if (c.includes('سوئد') || c.includes('sweden') || c === 'se') return 'Europe/Stockholm';
+  if (c.includes('انگلستان') || c.includes('انگلیس') || c.includes('uk') || c.includes('united kingdom')) return 'Europe/London';
+  if (c.includes('کانادا') || c.includes('canada') || c === 'ca') return 'America/Toronto';
+  if (c.includes('آمریکا') || c.includes('usa') || c === 'us') return 'America/New_York';
+  return process.env.TIMEZONE || 'Europe/Copenhagen';
+}
+
 export function formatToShamsi(date: Date, timeZone: string = process.env.TIMEZONE || 'Europe/Copenhagen'): string {
   try {
     const formatter = new Intl.DateTimeFormat('fa-IR', {
@@ -82,7 +95,7 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
       `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
       `🔹 <b>مبلغ کل باقیمانده:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
       `👤 <b>توسط:</b> ${userMention}\n` +
-      `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(prop.createdAt)}</code>\n`;
+      `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(prop.createdAt, getTimezoneByCountry(prop.creator.country))}</code>\n`;
 
     if (prop.counterOffers.length > 0) {
       msgText += `\n💬 <b>پیشنهادهای قیمت مطرح شده:</b>\n`;
