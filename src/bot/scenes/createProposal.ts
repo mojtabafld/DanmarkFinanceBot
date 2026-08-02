@@ -408,11 +408,12 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
             mainKeyboard
           );
 
-        } catch (error) {
+        } catch (error: any) {
           console.error('Error saving proposal:', error);
+          const errorDetail = error?.message ? `\n\n💬 جزئیات خطا:\n<code>${error.message.substring(0, 300)}</code>` : '';
           await ctx.reply(
-            '❌ متاسفانه در ثبت پیشنهاد خطایی رخ داد. لطفا مجددا تلاش کنید.',
-            mainKeyboard
+            `❌ متاسفانه در ثبت پیشنهاد خطایی رخ داد. لطفا مجددا تلاش کنید.${errorDetail}`,
+            { parse_mode: 'HTML', ...mainKeyboard }
           );
         }
 
