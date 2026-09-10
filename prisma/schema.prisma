@@ -117,3 +117,12 @@ model CounterOffer {
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
 }
+
+/// Telegraf wizard/session state. Persisted so a restart or redeploy does not drop
+/// users midway through KYC, ad creation, or a deal, and so more than one bot
+/// instance can share state.
+model Session {
+  key       String   @id
+  data      Json
+  updatedAt DateTime @updatedAt
+}

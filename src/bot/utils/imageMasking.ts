@@ -5,6 +5,32 @@ import * as os from 'os';
 import sharp from 'sharp';
 import axios from 'axios';
 
+/** Danish CPR: DDMMYY-XXXX (e.g. 251290-1234) or the same 10 digits unseparated. */
+export const CPR_REGEX = /\b\d{6}-\d{4}\b|\b\d{10}\b/;
+
+/** Danish postal codes are four digits, 1000-9999. */
+export const ZIP_CODE_REGEX = /\b[1-9]\d{3}\b/;
+
+/** Word endings that mark a Danish street name. */
+export const ADDRESS_SUFFIXES = [
+  'vej', 'gade', 'allé', 'plads', 'boulevard', 'stræde', 'have', 'park', 'toft', 'skov'
+];
+
+/** True when an OCR'd word looks like a CPR number, a postal code or a street name. */
+export function isSensitiveToken(text: string): boolean {
+  if (CPR_REGEX.test(text)) return true;
+  if (ZIP_CODE_REGEX.test(text)) return true;
+  const lower = text.toLowerCase();
+  return ADDRESS_SUFFIXES.some(suffix => lower.endsWith(suffix));
+}
+
+export interface MaskResult {
+  /** The image to forward on: masked when `maskedCount > 0`, otherwise the original. */
+  buffer: Buffer;
+  /** How many word boxes were blacked out. Zero means nothing was detected. */
+  maskedCount: number;
+}
+
 // Bounding box interface
 interface BBox {
   left: number;
@@ -18,10 +44,13 @@ interface BBox {
  * Downloads a photo from a given URL, runs Tesseract OCR locally to find Danish CPR numbers
  * or address elements, and draws black rectangles over those areas.
  * 
+ * Returns the number of boxes it actually covered alongside the image, so callers can
+ * tell the user the truth: finding no CPR or address pattern is not the same as
+ * having redacted one, and claiming otherwise would be a false privacy assurance.
+ *
  * @param fileUrl The direct download link of the photo.
- * @returns A Promise resolving to the processed image Buffer (either masked or original as fallback).
  */
-export async function maskImage(fileUrl: string): Promise<Buffer> {
+export async function maskImage(fileUrl: string): Promise<MaskResult> {
   let tempInputPath = '';
   let imageBuffer: Buffer;
 
@@ -74,34 +103,12 @@ export async function maskImage(fileUrl: string): Promise<Buffer> {
     }
 
     // 4. Identify boxes to mask (CPR numbers or address strings)
-    // Danish CPR pattern: DDMMYY-XXXX (e.g. 251290-1234) or 10-digit number
-    const cprRegex = /\b\d{6}-\d{4}\b|\b\d{10}\b/;
-    
-    // Address elements
-    const addressSuffixes = ['vej', 'gade', 'allé', 'plads', 'boulevard', 'stræde', 'have', 'park', 'toft', 'skov'];
-    const zipCodeRegex = /\b[1-9]\d{3}\b/; // Danish zip codes are 4 digits (1000 - 9999)
-
     const boxesToMask: BBox[] = [];
 
     for (let i = 0; i < boxes.length; i++) {
       const box = boxes[i];
-      let shouldMask = false;
 
-      if (cprRegex.test(box.text)) {
-        shouldMask = true;
-      } else if (zipCodeRegex.test(box.text)) {
-        shouldMask = true;
-      } else {
-        const textLower = box.text.toLowerCase();
-        for (const suffix of addressSuffixes) {
-          if (textLower.endsWith(suffix)) {
-            shouldMask = true;
-            break;
-          }
-        }
-      }
-
-      if (shouldMask) {
+      if (isSensitiveToken(box.text)) {
         boxesToMask.push(box);
         
         // Also mask immediately adjacent boxes on the same line to mask the entire address line/value
@@ -134,7 +141,7 @@ export async function maskImage(fileUrl: string): Promise<Buffer> {
 
     if (boxesToMask.length === 0) {
       console.log('No CPR or address patterns detected on document. Sending original image.');
-      return imageBuffer;
+      return { buffer: imageBuffer, maskedCount: 0 };
     }
 
     // 5. Redraw image by placing black rectangles over the selected bounding boxes
@@ -159,9 +166,11 @@ export async function maskImage(fileUrl: string): Promise<Buffer> {
 
     console.log(`Masking ${boxesToMask.length} word boxes containing CPR or address information.`);
 
-    return await sharp(imageBuffer)
+    const masked = await sharp(imageBuffer)
       .composite([{ input: Buffer.from(svgOverlay), blend: 'over' }])
       .toBuffer();
+
+    return { buffer: masked, maskedCount: boxesToMask.length };
 
   } catch (err) {
     console.error('OCR/Masking failed critically:', err);

@@ -2,6 +2,7 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { mainKeyboard } from '../utils/keyboards';
 import { updateGroupProposalMessage } from '../utils/groupMessage';
+import { escapeHtml, mentionUser } from '../utils/html';
 
 export const MANAGE_OFFERS_SCENE_ID = 'MANAGE_OFFERS_SCENE';
 
@@ -46,7 +47,7 @@ async function listOffers(ctx: MyManageOffersContext) {
     });
 
     await ctx.reply(
-      '🤝 **لیست پیشنهادهای قیمت شما روی آگهی‌های دیگران:**\n\n' +
+      '🤝 <b>لیست پیشنهادهای قیمت شما روی آگهی‌های دیگران:</b>\n\n' +
       'یکی از پیشنهادهای زیر را جهت مدیریت (ویرایش/حذف) انتخاب کنید:',
       {
         ...manageOffersMenuKeyboard,
@@ -78,15 +79,15 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
           const prop = offer.proposal;
           const typeText = prop.type === 'BUY' ? '🟢 خرید ارز توسط او' : '🔴 فروش ارز توسط او';
           const details = 
-            `📋 **جزئیات پیشنهاد قیمت شما:**\n\n` +
-            `🔹 **آگهی مربوطه:** کد ${prop.code ?? prop.id} (${typeText})\n` +
-            `🔹 **مقدار کل آگهی:** ${prop.amount.toLocaleString('fa-IR')} ${prop.currency}\n` +
-            `🔹 **نرخ واحد آگهی:** ${prop.price.toLocaleString('fa-IR')} تومان\n` +
-            `🔹 **تسویه:** ${prop.paymentMethod || 'ثبت نشده'}\n` +
+            `📋 <b>جزئیات پیشنهاد قیمت شما:</b>\n\n` +
+            `🔹 <b>آگهی مربوطه:</b> کد ${prop.code ?? prop.id} (${typeText})\n` +
+            `🔹 <b>مقدار کل آگهی:</b> ${prop.amount.toLocaleString('fa-IR')} ${escapeHtml(prop.currency)}\n` +
+            `🔹 <b>نرخ واحد آگهی:</b> ${prop.price.toLocaleString('fa-IR')} تومان\n` +
+            `🔹 <b>تسویه:</b> ${escapeHtml(prop.paymentMethod || 'ثبت نشده')}\n` +
             `➖➖➖➖➖➖➖➖➖➖\n` +
-            `💵 **مقدار پیشنهادی شما:** <code>${offer.amount.toLocaleString('fa-IR')}</code> ${prop.currency}\n` +
-            `💵 **نرخ پیشنهادی شما:** <code>${offer.price.toLocaleString('fa-IR')}</code> تومان\n` +
-            `💵 **ارزش کل پیشنهادی:** <code>${(offer.amount * offer.price).toLocaleString('fa-IR')}</code> تومان\n\n` +
+            `💵 <b>مقدار پیشنهادی شما:</b> <code>${offer.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(prop.currency)}\n` +
+            `💵 <b>نرخ پیشنهادی شما:</b> <code>${offer.price.toLocaleString('fa-IR')}</code> تومان\n` +
+            `💵 <b>ارزش کل پیشنهادی:</b> <code>${(offer.amount * offer.price).toLocaleString('fa-IR')}</code> تومان\n\n` +
             `👇 عملیات مورد نظر خود را انتخاب کنید:`;
 
           await ctx.replyWithHTML(
@@ -151,15 +152,15 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
           const prop = offer.proposal;
           const typeText = prop.type === 'BUY' ? '🟢 خرید ارز توسط او' : '🔴 فروش ارز توسط او';
           const details = 
-            `📋 **جزئیات پیشنهاد قیمت شما:**\n\n` +
-            `🔹 **آگهی مربوطه:** کد ${prop.code ?? prop.id} (${typeText})\n` +
-            `🔹 **مقدار کل آگهی:** ${prop.amount.toLocaleString('fa-IR')} ${prop.currency}\n` +
-            `🔹 **نرخ واحد آگهی:** ${prop.price.toLocaleString('fa-IR')} تومان\n` +
-            `🔹 **تسویه:** ${prop.paymentMethod || 'ثبت نشده'}\n` +
+            `📋 <b>جزئیات پیشنهاد قیمت شما:</b>\n\n` +
+            `🔹 <b>آگهی مربوطه:</b> کد ${prop.code ?? prop.id} (${typeText})\n` +
+            `🔹 <b>مقدار کل آگهی:</b> ${prop.amount.toLocaleString('fa-IR')} ${escapeHtml(prop.currency)}\n` +
+            `🔹 <b>نرخ واحد آگهی:</b> ${prop.price.toLocaleString('fa-IR')} تومان\n` +
+            `🔹 <b>تسویه:</b> ${escapeHtml(prop.paymentMethod || 'ثبت نشده')}\n` +
             `➖➖➖➖➖➖➖➖➖➖\n` +
-            `💵 **مقدار پیشنهادی شما:** <code>${offer.amount.toLocaleString('fa-IR')}</code> ${prop.currency}\n` +
-            `💵 **نرخ پیشنهادی شما:** <code>${offer.price.toLocaleString('fa-IR')}</code> تومان\n` +
-            `💵 **ارزش کل پیشنهادی:** <code>${(offer.amount * offer.price).toLocaleString('fa-IR')}</code> تومان\n\n` +
+            `💵 <b>مقدار پیشنهادی شما:</b> <code>${offer.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(prop.currency)}\n` +
+            `💵 <b>نرخ پیشنهادی شما:</b> <code>${offer.price.toLocaleString('fa-IR')}</code> تومان\n` +
+            `💵 <b>ارزش کل پیشنهادی:</b> <code>${(offer.amount * offer.price).toLocaleString('fa-IR')}</code> تومان\n\n` +
             `👇 عملیات مورد نظر خود را انتخاب کنید:`;
 
           await ctx.replyWithHTML(
@@ -183,7 +184,7 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
         if (isNaN(offerId)) return;
 
         await ctx.reply(
-          `⚠️ **لغو پیشنهاد**\nآیا از لغو و حذف کامل این پیشنهاد قیمت اطمینان دارید؟\nاین تغییر روی آگهی اصلی در گروه معاملاتی اعمال خواهد شد.`,
+          `⚠️ <b>لغو پیشنهاد</b>\nآیا از لغو و حذف کامل این پیشنهاد قیمت اطمینان دارید؟\nاین تغییر روی آگهی اصلی در گروه معاملاتی اعمال خواهد شد.`,
           Markup.inlineKeyboard([
             [
               Markup.button.callback('✅ بله، لغو کن', `CONFIRM_DELETE_OFFER_${offerId}`),
@@ -216,15 +217,17 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
           });
 
           // Notify proposal creator privately
-          const proposerMention = ctx.from!.username 
-            ? `@${ctx.from!.username}` 
-            : `<a href="tg://user?id=${ctx.from!.id}">${ctx.from!.first_name}</a>`;
+          const proposerMention = mentionUser({
+            username: ctx.from!.username,
+            firstName: ctx.from!.first_name,
+            telegramId: String(ctx.from!.id)
+          });
             
           const cancelMsg = 
-            `❌ **لغو پیشنهاد قیمت**\n\n` +
+            `❌ <b>لغو پیشنهاد قیمت</b>\n\n` +
             `کاربر ${proposerMention} پیشنهاد خود را روی آگهی کد <code>${offer.proposal.code ?? offer.proposal.id}</code> شما لغو کرد:\n` +
-            `🔹 **مقدار پیشنهادی:** ${offer.amount.toLocaleString('fa-IR')} ${offer.proposal.currency}\n` +
-            `🔹 **نرخ پیشنهادی:** ${offer.price.toLocaleString('fa-IR')} تومان`;
+            `🔹 <b>مقدار پیشنهادی:</b> ${offer.amount.toLocaleString('fa-IR')} ${escapeHtml(offer.proposal.currency)}\n` +
+            `🔹 <b>نرخ پیشنهادی:</b> ${offer.price.toLocaleString('fa-IR')} تومان`;
 
           await ctx.telegram.sendMessage(offer.proposal.creator.telegramId, cancelMsg, { parse_mode: 'HTML' })
             .catch(err => console.error('Failed to notify creator of offer cancellation:', err));
@@ -259,8 +262,8 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
 
           const maxAmount = offer.proposal.amount;
           await ctx.reply(
-            `✏️ **ویرایش مقدار پیشنهادی (آگهی کد ${offer.proposal.code ?? offer.proposal.id})**\n\n` +
-            `مقدار پیشنهادی فعلی شما: <code>${offer.amount.toLocaleString('fa-IR')}</code> ${offer.proposal.currency}\n` +
+            `✏️ <b>ویرایش مقدار پیشنهادی (آگهی کد ${offer.proposal.code ?? offer.proposal.id})</b>\n\n` +
+            `مقدار پیشنهادی فعلی شما: <code>${offer.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(offer.proposal.currency)}\n` +
             `حداکثر مقدار مجاز قابل معامله: <code>${maxAmount.toLocaleString('fa-IR')}</code>\n\n` +
             `لطفاً مقدار جدید پیشنهادی خود را وارد کنید (به صورت عدد انگلیسی):`,
             {
@@ -308,7 +311,7 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
         ctx.wizard.state.amount = amount;
 
         await ctx.reply(
-          `✏️ **ویرایش نرخ پیشنهادی (آگهی کد ${offer.proposal.code ?? offer.proposal.id})**\n\n` +
+          `✏️ <b>ویرایش نرخ پیشنهادی (آگهی کد ${offer.proposal.code ?? offer.proposal.id})</b>\n\n` +
           `نرخ پیشنهادی فعلی شما: <code>${offer.price.toLocaleString('fa-IR')}</code> تومان\n` +
           `نرخ آگهی اصلی (حداکثر نرخ مجاز): <code>${offer.proposal.price.toLocaleString('fa-IR')}</code> تومان\n\n` +
           `لطفاً نرخ پیشنهادی جدید خود را به تومان وارد کنید:`,
@@ -359,14 +362,14 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
         const total = amount * price;
 
         const summary = 
-          `📝 **پیش‌نویس ویرایش پیشنهاد شما:**\n\n` +
-          `🔹 **آگهی:** کد ${offer.proposal.code ?? offer.proposal.id}\n` +
-          `🔹 **مقدار جدید پیشنهادی:** ${amount.toLocaleString('fa-IR')} ${offer.proposal.currency}\n` +
-          `🔹 **نرخ جدید پیشنهادی:** ${price.toLocaleString('fa-IR')} تومان\n` +
-          `🔹 **مبلغ کل جدید پیشنهادی:** ${total.toLocaleString('fa-IR')} تومان\n\n` +
+          `📝 <b>پیش‌نویس ویرایش پیشنهاد شما:</b>\n\n` +
+          `🔹 <b>آگهی:</b> کد ${offer.proposal.code ?? offer.proposal.id}\n` +
+          `🔹 <b>مقدار جدید پیشنهادی:</b> ${amount.toLocaleString('fa-IR')} ${escapeHtml(offer.proposal.currency)}\n` +
+          `🔹 <b>نرخ جدید پیشنهادی:</b> ${price.toLocaleString('fa-IR')} تومان\n` +
+          `🔹 <b>مبلغ کل جدید پیشنهادی:</b> ${total.toLocaleString('fa-IR')} تومان\n\n` +
           `❓ آیا این ویرایش را تایید و اعمال می‌کنید؟`;
 
-        await ctx.replyWithMarkdown(
+        await ctx.replyWithHTML(
           summary,
           Markup.inlineKeyboard([
             [
@@ -423,16 +426,18 @@ export const manageOffersWizard = new Scenes.WizardScene<MyManageOffersContext>(
           await ctx.reply('✅ پیشنهاد شما با موفقیت ویرایش شد و برای صاحب آگهی ارسال گردید.', mainKeyboard);
 
           // Notify proposal creator privately
-          const proposerMention = ctx.from!.username 
-            ? `@${ctx.from!.username}` 
-            : `<a href="tg://user?id=${ctx.from!.id}">${ctx.from!.first_name}</a>`;
+          const proposerMention = mentionUser({
+            username: ctx.from!.username,
+            firstName: ctx.from!.first_name,
+            telegramId: String(ctx.from!.id)
+          });
 
           const editMsg = 
-            `🔔 **ویرایش پیشنهاد قیمت**\n\n` +
+            `🔔 <b>ویرایش پیشنهاد قیمت</b>\n\n` +
             `کاربر ${proposerMention} پیشنهاد خود را روی آگهی کد <code>${offer.proposal.code ?? offer.proposal.id}</code> شما ویرایش کرد:\n` +
-            `🔹 **مقدار پیشنهادی جدید:** <code>${amount.toLocaleString('fa-IR')}</code> ${offer.proposal.currency}\n` +
-            `🔹 **نرخ پیشنهادی جدید:** <code>${price.toLocaleString('fa-IR')}</code> تومان\n` +
-            `🔹 **ارزش کل جدید:** <code>${(amount * price).toLocaleString('fa-IR')}</code> تومان`;
+            `🔹 <b>مقدار پیشنهادی جدید:</b> <code>${amount.toLocaleString('fa-IR')}</code> ${escapeHtml(offer.proposal.currency)}\n` +
+            `🔹 <b>نرخ پیشنهادی جدید:</b> <code>${price.toLocaleString('fa-IR')}</code> تومان\n` +
+            `🔹 <b>ارزش کل جدید:</b> <code>${(amount * price).toLocaleString('fa-IR')}</code> تومان`;
 
           await ctx.telegram.sendMessage(offer.proposal.creator.telegramId, editMsg, {
             parse_mode: 'HTML',

@@ -1,6 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { mainKeyboard } from '../utils/keyboards';
+import { escapeHtml } from '../utils/html';
 
 export const ADMIN_SEARCH_SCENE_ID = 'ADMIN_SEARCH_SCENE';
 
@@ -12,7 +13,7 @@ export const adminSearchWizard = new Scenes.WizardScene<AdminSearchContext>(
   // Step 1: Prompt for search term
   async (ctx) => {
     await ctx.reply(
-      '🔍 **جستجوی کاربر**\n\n' +
+      '🔍 <b>جستجوی کاربر</b>\n\n' +
       'لطفاً نام واقعی، نام کاربری (بدون @)، شماره تماس یا شناسه عددی تلگرام کاربر مورد نظر را ارسال کنید:',
       Markup.keyboard([['❌ انصراف']]).resize().oneTime()
     );
@@ -62,7 +63,7 @@ export const adminSearchWizard = new Scenes.WizardScene<AdminSearchContext>(
       
       const buttons = users.map(u => [
         Markup.button.callback(
-          `${u.fullName || u.firstName} (@${u.username || 'ندارد'}) [${u.verificationStatus}]`,
+          `${escapeHtml(u.fullName || u.firstName)} (@${escapeHtml(u.username || 'ندارد')}) [${u.verificationStatus}]`,
           `ADMIN_USER_VIEW_${u.id}`
         )
       ]);

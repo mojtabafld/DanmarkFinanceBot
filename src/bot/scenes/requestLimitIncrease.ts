@@ -3,6 +3,7 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
+import { escapeHtml, mentionUser } from '../utils/html';
 
 interface LimitState {
   userMessage?: string;
@@ -46,7 +47,7 @@ export const requestLimitIncreaseWizard = new Scenes.WizardScene<MyLimitContext>
     }
 
     await ctx.reply(
-      `📈 **درخواست افزایش سقف آگهی روزانه**\n\n` +
+      `📈 <b>درخواست افزایش سقف آگهی روزانه</b>\n\n` +
       `درخواست شما ثبت شد. در صورتی که می‌خواهید پیغامی برای ادمین بفرستید، متن خود را وارد کنید و روی دکمه ارسال ضربه بزنید. در غیر این صورت می‌توانید دکمه «ارسال درخواست» را انتخاب کنید:`,
       Markup.keyboard([
         ['ارسال درخواست'],
@@ -80,15 +81,13 @@ export const requestLimitIncreaseWizard = new Scenes.WizardScene<MyLimitContext>
           return ctx.scene.leave();
         }
 
-        const userMention = dbUser.username 
-          ? `@${dbUser.username}` 
-          : `<a href="tg://user?id=${dbUser.telegramId}">${dbUser.firstName}</a>`;
+        const userMention = mentionUser(dbUser);
 
         const adminMsgText =
           `🔔 <b>درخواست افزایش سقف آگهی روزانه</b>\n\n` +
           `👤 <b>کاربر:</b> ${userMention}\n` +
-          `📱 <b>تلفن:</b> <code>${dbUser.phoneNumber ?? '---'}</code>\n` +
-          `🌍 <b>کشور:</b> <code>${dbUser.country ?? '---'}</code>\n` +
+          `📱 <b>تلفن:</b> <code>${escapeHtml(dbUser.phoneNumber ?? '---')}</code>\n` +
+          `🌍 <b>کشور:</b> <code>${escapeHtml(dbUser.country ?? '---')}</code>\n` +
           `📈 <b>سقف فعلی:</b> <code>${dbUser.dailyProposalLimit}</code> آگهی\n` +
           `💬 <b>پیام کاربر:</b> ${userMessage}\n\n` +
           `❓ آیا با افزایش سقف روزانه این کاربر به ۱۰ موافقت می‌کنید؟`;

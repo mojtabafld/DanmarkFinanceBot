@@ -2,6 +2,7 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { mainKeyboard } from '../utils/keyboards';
 import { updateGroupProposalMessage } from '../utils/groupMessage';
+import { escapeHtml } from '../utils/html';
 
 interface EditProposalState {
   proposalId?: number;
@@ -41,8 +42,8 @@ export const editProposalWizard = new Scenes.WizardScene<MyEditWizardContext>(
       }
 
       await ctx.reply(
-        `✏️ **ویرایش مقدار آگهی #${proposal.code}**\n\n` +
-        `مقدار فعلی: <code>${proposal.amount.toLocaleString('fa-IR')}</code> ${proposal.currency}\n\n` +
+        `✏️ <b>ویرایش مقدار آگهی #${proposal.code}</b>\n\n` +
+        `مقدار فعلی: <code>${proposal.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(proposal.currency)}\n\n` +
         `لطفاً مقدار جدید مورد نظر خود را به صورت عدد انگلیسی وارد کنید:`,
         {
           parse_mode: 'HTML',
@@ -82,7 +83,7 @@ export const editProposalWizard = new Scenes.WizardScene<MyEditWizardContext>(
         if (!proposal) return ctx.scene.leave();
 
         await ctx.reply(
-          `✏️ **ویرایش نرخ آگهی #${proposal.code}**\n\n` +
+          `✏️ <b>ویرایش نرخ آگهی #${proposal.code}</b>\n\n` +
           `نرخ فعلی: <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n\n` +
           `لطفاً نرخ جدید مورد نظر خود را به تومان وارد کنید:`,
           {
@@ -129,13 +130,13 @@ export const editProposalWizard = new Scenes.WizardScene<MyEditWizardContext>(
         const summaryText = 
           `✏️ *پیش‌نویس ویرایش آگهی #${proposal.code}:*\n\n` +
           `🔹 *نوع تراکنش:* ${proposal.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}\n` +
-          `🔹 *نام ارز:* ${proposal.currency}\n` +
+          `🔹 *نام ارز:* ${escapeHtml(proposal.currency)}\n` +
           `🔹 *مقدار جدید:* ${amount.toLocaleString('fa-IR')}\n` +
           `🔹 *قیمت واحد جدید:* ${price.toLocaleString('fa-IR')} تومان\n` +
           `🔹 *مبلغ کل جدید:* ${total.toLocaleString('fa-IR')} تومان\n\n` +
           `❓ آیا تغییرات فوق مورد تایید است؟`;
 
-        await ctx.replyWithMarkdown(
+        await ctx.replyWithHTML(
           summaryText,
           Markup.inlineKeyboard([
             [
@@ -202,10 +203,10 @@ export const editProposalWizard = new Scenes.WizardScene<MyEditWizardContext>(
 
           // Notify counter-offerers
           const notifyMsg = 
-            `🔔 **اطلاعیه ویرایش آگهی**\n\n` +
+            `🔔 <b>اطلاعیه ویرایش آگهی</b>\n\n` +
             `کاربر گرامی، آگهی کد <code>${proposal.code ?? proposal.id}</code> که شما روی آن پیشنهاد قیمت ثبت کرده بودید، توسط آگهی‌دهنده ویرایش گردید:\n` +
-            `🔹 **مقدار جدید:** <code>${amount.toLocaleString('fa-IR')}</code> ${proposal.currency}\n` +
-            `🔹 **قیمت واحد جدید:** <code>${price.toLocaleString('fa-IR')}</code> تومان\n\n` +
+            `🔹 <b>مقدار جدید:</b> <code>${amount.toLocaleString('fa-IR')}</code> ${escapeHtml(proposal.currency)}\n` +
+            `🔹 <b>قیمت واحد جدید:</b> <code>${price.toLocaleString('fa-IR')}</code> تومان\n\n` +
             `🔄 در صورت تمایل می‌توانید با زدن دکمه زیر پیشنهاد قیمت خود را متناسب با تغییرات جدید ویرایش کنید یا آن را لغو نمایید:`;
 
           for (const offer of pendingOffers) {

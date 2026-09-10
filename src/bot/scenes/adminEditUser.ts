@@ -2,6 +2,7 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
+import { escapeHtml, mentionUser } from '../utils/html';
 
 export const ADMIN_EDIT_USER_SCENE_ID = 'ADMIN_EDIT_USER_SCENE';
 export const ADMIN_REJECT_USER_SCENE_ID = 'ADMIN_REJECT_USER_SCENE';
@@ -47,19 +48,19 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
       
       switch (field) {
         case 'fullName':
-          promptText = `✏️ **ویرایش نام واقعی**\n\nنام کنونی: <code>${user.fullName || 'ثبت نشده'}</code>\n\nلطفاً نام و نام خانوادگی جدید را تایپ کنید:`;
+          promptText = `✏️ <b>ویرایش نام واقعی</b>\n\nنام کنونی: <code>${escapeHtml(user.fullName || 'ثبت نشده')}</code>\n\nلطفاً نام و نام خانوادگی جدید را تایپ کنید:`;
           break;
         case 'phoneNumber':
-          promptText = `✏️ **ویرایش شماره تماس**\n\nشماره کنونی: <code>${user.phoneNumber || 'ثبت نشده'}</code>\n\nلطفاً شماره تماس جدید را تایپ کنید:`;
+          promptText = `✏️ <b>ویرایش شماره تماس</b>\n\nشماره کنونی: <code>${escapeHtml(user.phoneNumber || 'ثبت نشده')}</code>\n\nلطفاً شماره تماس جدید را تایپ کنید:`;
           break;
         case 'country':
-          promptText = `✏️ **ویرایش کشور اقامت**\n\nکشور کنونی: <code>${user.country || 'ثبت نشده'}</code>\n\nلطفاً کشور جدید را تایپ کنید:`;
+          promptText = `✏️ <b>ویرایش کشور اقامت</b>\n\nکشور کنونی: <code>${escapeHtml(user.country || 'ثبت نشده')}</code>\n\nلطفاً کشور جدید را تایپ کنید:`;
           break;
         case 'dailyProposalLimit':
-          promptText = `✏️ **ویرایش محدودیت پیشنهاد روزانه**\n\nمحدودیت کنونی: <code>${user.dailyProposalLimit}</code> پیشنهاد در روز\n\nلطفاً عدد جدید را وارد کنید:`;
+          promptText = `✏️ <b>ویرایش محدودیت پیشنهاد روزانه</b>\n\nمحدودیت کنونی: <code>${user.dailyProposalLimit}</code> پیشنهاد در روز\n\nلطفاً عدد جدید را وارد کنید:`;
           break;
         case 'verificationStatus':
-          promptText = `✏️ **ویرایش وضعیت احراز هویت**\n\nوضعیت کنونی: <code>${user.verificationStatus}</code>\n\nلطفاً وضعیت جدید را از دکمه‌های زیر انتخاب کنید:`;
+          promptText = `✏️ <b>ویرایش وضعیت احراز هویت</b>\n\nوضعیت کنونی: <code>${user.verificationStatus}</code>\n\nلطفاً وضعیت جدید را از دکمه‌های زیر انتخاب کنید:`;
           replyMarkup = undefined;
           await ctx.reply(promptText, {
             parse_mode: 'HTML',
@@ -126,7 +127,7 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
             data: { verificationStatus: newStatus }
           });
           
-          await ctx.reply(`✅ وضعیت کاربر **${user.fullName || user.firstName}** با موفقیت به **${newStatus}** تغییر یافت.`);
+          await ctx.reply(`✅ وضعیت کاربر <b>${escapeHtml(user.fullName || user.firstName)}</b> با موفقیت به <b>${newStatus}</b> تغییر یافت.`);
           
           // If approved, let's also issue an invite link if they were not already approved
           if (newStatus === 'APPROVED') {
@@ -137,13 +138,13 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
             });
             await ctx.telegram.sendMessage(
               user.telegramId,
-              `🎉 **وضعیت احراز هویت شما تغییر یافت!**\n\n` +
+              `🎉 <b>وضعیت احراز هویت شما تغییر یافت!</b>\n\n` +
               `مدیریت وضعیت شما را به «تایید شده» تغییر داد.\n` +
               `لینک عضویت یک‌بار مصرف شما در گروه معاملاتی (دارای اعتبار ۲۴ ساعته):\n` +
               `🔗 ${inviteLink.invite_link}\n\n` +
               `پس از عضویت در گروه، می‌توانید پیشنهادهای خود را از دکمه‌های زیر ثبت و مدیریت کنید.`,
               {
-                parse_mode: 'Markdown',
+                parse_mode: 'HTML',
                 ...mainKeyboard
               }
             ).catch(() => {});
@@ -197,7 +198,7 @@ export const adminEditUserWizard = new Scenes.WizardScene<MyEditUserContext>(
         
         await ctx.reply(`✅ ویرایش با موفقیت انجام شد.`, mainKeyboard);
         await ctx.reply(
-          `مشخصات جدید کاربر **${user.fullName || user.firstName}** ثبت شد.`,
+          `مشخصات جدید کاربر <b>${escapeHtml(user.fullName || user.firstName)}</b> ثبت شد.`,
           Markup.inlineKeyboard([[Markup.button.callback('👤 مشاهده مشخصات کاربر', `ADMIN_USER_VIEW_${user.id}`)]])
         );
       } catch (error) {
@@ -245,7 +246,7 @@ export const adminRejectUserWizard = new Scenes.WizardScene<MyRejectUserContext>
       }
       
       await ctx.reply(
-        `🚫 **رد صلاحیت و لغو تاییدیه کاربر: ${user.fullName || user.firstName}**\n\n` +
+        `🚫 <b>رد صلاحیت و لغو تاییدیه کاربر: ${escapeHtml(user.fullName || user.firstName)}</b>\n\n` +
         `لطفاً علت رد صلاحیت کاربر را تایپ و ارسال کنید تا به اطلاع او برسد:\n\n` +
         `💡 یا یکی از گزینه‌های پایین صفحه را انتخاب کنید:`,
         Markup.keyboard([
@@ -279,17 +280,15 @@ export const adminRejectUserWizard = new Scenes.WizardScene<MyRejectUserContext>
             where: { id: userId }
           });
           if (dbUser && dbUser.verificationStatus === 'PENDING') {
-            const userMention = dbUser.username 
-              ? `@${dbUser.username}` 
-              : `<a href="tg://user?id=${dbUser.telegramId}">${dbUser.firstName}</a>`;
+            const userMention = mentionUser(dbUser);
 
             const adminMsg =
               `🔔 <b>درخواست احراز هویت جدید</b>\n\n` +
               `👤 <b>کاربر:</b> ${userMention}\n` +
-              `📝 **نام کامل:** ${dbUser.fullName}\n` +
-              `🌍 **کشور اقامت:** ${dbUser.country}\n` +
-              `📱 **شماره تلفن:** ${dbUser.phoneNumber}\n` +
-              `🆔 **شناسه عددی:** \`${dbUser.telegramId}\`\n\n` +
+              `📝 <b>نام کامل:</b> ${escapeHtml(dbUser.fullName)}\n` +
+              `🌍 <b>کشور اقامت:</b> ${escapeHtml(dbUser.country)}\n` +
+              `📱 <b>شماره تلفن:</b> ${escapeHtml(dbUser.phoneNumber)}\n` +
+              `🆔 <b>شناسه عددی:</b> <code>${dbUser.telegramId}</code>\n\n` +
               `👇 تصویر مدرک پیوست شده است:`;
 
             const sentTextMsg = await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'HTML' });
@@ -298,7 +297,7 @@ export const adminRejectUserWizard = new Scenes.WizardScene<MyRejectUserContext>
               config.ADMIN_CHAT_ID,
               dbUser.documentFileId!,
               {
-                caption: `👤 مدرک هویتی ${dbUser.fullName}\nآیا این کاربر تایید شود؟`,
+                caption: `👤 مدرک هویتی ${escapeHtml(dbUser.fullName)}\nآیا این کاربر تایید شود؟`,
                 ...Markup.inlineKeyboard([
                   [
                     Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${dbUser.id}`),
@@ -336,8 +335,8 @@ export const adminRejectUserWizard = new Scenes.WizardScene<MyRejectUserContext>
         
         // Notify the User
         const userMsg =
-          `❌ **درخواست احراز هویت شما مورد تایید قرار نگرفت.**\n\n` +
-          `💬 **علت رد درخواست:** ${reason}\n\n` +
+          `❌ <b>درخواست احراز هویت شما مورد تایید قرار نگرفت.</b>\n\n` +
+          `💬 <b>علت رد درخواست:</b> ${reason}\n\n` +
           `شما می‌توانید با زدن دکمه «🔐 شروع احراز هویت» مجدداً تلاش کرده و مدارک معتبر ارسال کنید.`;
         
         await ctx.telegram.sendMessage(user.telegramId, userMsg).catch(() => {});
@@ -348,7 +347,7 @@ export const adminRejectUserWizard = new Scenes.WizardScene<MyRejectUserContext>
         await ctx.telegram.unbanChatMember(config.GROUP_CHAT_ID, tgId).catch(() => {});
         
         await ctx.reply(
-          `🚫 درخواست کاربر **${user.fullName || user.firstName}** رد شد، علت برای وی ارسال و از گروه معاملاتی اخراج گردید.`,
+          `🚫 درخواست کاربر <b>${escapeHtml(user.fullName || user.firstName)}</b> رد شد، علت برای وی ارسال و از گروه معاملاتی اخراج گردید.`,
           mainKeyboard
         );
         

@@ -3,6 +3,7 @@ import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
 import { updateGroupProposalMessage, formatToShamsi, getTimezoneByCountry } from '../utils/groupMessage';
+import { escapeHtml, mentionUser } from '../utils/html';
 
 // Define the state interface
 interface ProposalState {
@@ -22,24 +23,33 @@ export interface MyWizardContext extends Scenes.WizardContext {
 
 export const CREATE_PROPOSAL_SCENE_ID = 'CREATE_PROPOSAL_SCENE';
 
+/** Highest referral code the four-digit, zero-padded scheme can represent. */
+const MAX_PROPOSAL_CODE = 9999;
+
+/**
+ * Returns the lowest unused four-digit ad code.
+ *
+ * Only codes are read, and only from rows that have one, so this stays a narrow
+ * index-covered query rather than loading every proposal. It is still advisory: two
+ * concurrent callers can be handed the same code, so the caller must treat a unique
+ * constraint violation as "try again" rather than as a failure.
+ */
 async function getNextAvailableCode(): Promise<string> {
-  try {
-    const allProposals = await prisma.proposal.findMany({
-      select: { code: true }
-    });
-    
-    const usedCodes = new Set(allProposals.map(p => p.code).filter(Boolean));
-    
-    for (let i = 1; i <= 99999; i++) {
-      const codeStr = i.toString().padStart(4, '0');
-      if (!usedCodes.has(codeStr)) {
-        return codeStr;
-      }
+  const rows = await prisma.proposal.findMany({
+    where: { code: { not: null } },
+    select: { code: true }
+  });
+
+  const usedCodes = new Set(rows.map(r => r.code));
+
+  for (let i = 1; i <= MAX_PROPOSAL_CODE; i++) {
+    const codeStr = i.toString().padStart(4, '0');
+    if (!usedCodes.has(codeStr)) {
+      return codeStr;
     }
-  } catch (err) {
-    console.error('Error allocating code:', err);
   }
-  return Math.floor(1000 + Math.random() * 9000).toString();
+
+  throw new Error('PROPOSAL_CODE_SPACE_EXHAUSTED');
 }
 
 export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
@@ -75,7 +85,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
         const limit = dbUser.dailyProposalLimit;
         if (activeCount >= limit) {
           await ctx.reply(
-            `⚠️ **محدودیت تعداد پیشنهاد روزانه**\n\n` +
+            `⚠️ <b>محدودیت تعداد پیشنهاد روزانه</b>\n\n` +
             `کاربر گرامی، شما در ۲۴ ساعت گذشته تعداد <code>${activeCount}</code> پیشنهاد ثبت کرده‌اید و به حد مجاز روزانه خود (<code>${limit}</code> پیشنهاد) رسیده‌اید.\n\n` +
             `امکان ثبت پیشنهاد جدید تا پایان بازه ۲۴ ساعته مقدور نیست.`,
             { parse_mode: 'HTML' }
@@ -213,7 +223,7 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
       const currency = ctx.wizard.state.currency;
 
       await ctx.reply(
-        `لطفاً مقدار ارز (${currency}) مورد نظر خود را به صورت عدد انگلیسی وارد کنید:`,
+        `لطفاً مقدار ارز (${escapeHtml(currency)}) مورد نظر خود را به صورت عدد انگلیسی وارد کنید:`,
         Markup.keyboard([['انصراف']]).oneTime().resize()
       );
       return ctx.wizard.next();
@@ -276,14 +286,14 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
       const summaryText = 
         `📋 *پیش‌نویس پیشنهاد شما:*\n\n` +
         `🔹 *نوع تراکنش:* ${typeText}\n` +
-        `🔹 *نام ارز:* ${currency}\n` +
-        `🔹 *نوع تسویه:* ${paymentMethod}\n` +
+        `🔹 *نام ارز:* ${escapeHtml(currency)}\n` +
+        `🔹 *نوع تسویه:* ${escapeHtml(paymentMethod)}\n` +
         `🔹 *مقدار:* ${amount.toLocaleString('fa-IR')}\n` +
         `🔹 *قیمت واحد:* ${price.toLocaleString('fa-IR')} تومان\n` +
         `🔹 *مبلغ کل:* ${total.toLocaleString('fa-IR')} تومان\n\n` +
         `❓ آیا مایل به ارسال این پیشنهاد به گروه هستید؟`;
 
-      await ctx.replyWithMarkdown(
+      await ctx.replyWithHTML(
         summaryText,
         Markup.inlineKeyboard([
           [
@@ -366,8 +376,15 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
               });
               break;
             } catch (createErr: any) {
+              // P2002 is the unique-constraint violation raised when another request
+              // claimed the same code first. Anything else is a real failure and must
+              // not be retried into silence.
+              const isCodeCollision =
+                createErr?.code === 'P2002' &&
+                (createErr?.meta?.target as string[] | undefined)?.includes('code');
+
               attempts++;
-              if (attempts >= 5) throw createErr;
+              if (!isCodeCollision || attempts >= 5) throw createErr;
             }
           }
 
@@ -377,21 +394,19 @@ export const createProposalWizard = new Scenes.WizardScene<MyWizardContext>(
 
           // 3. Format message for the Admin approval request
           const typeHeader = proposal.type === 'BUY' ? '🟢 #خرید_ارز' : '🔴 #فروش_ارز';
-          const userMention = from.username 
-            ? `@${from.username}` 
-            : `<a href="tg://user?id=${from.id}">${from.first_name}</a>`;
+          const userMention = mentionUser({ username: from.username, firstName: from.first_name, telegramId: String(from.id) });
 
           const adminApprovalMsgText =
             `⏳ <b>درخواست ثبت آگهی جدید (نیاز به تایید ادمین)</b>\n\n` +
             `🔹 <b>کد حواله:</b> <code>${proposal.code}</code>\n` +
             `🔹 <b>نوع:</b> ${typeHeader}\n` +
-            `🔹 <b>ارز:</b> <code>${proposal.currency}</code>\n` +
-            `🔹 <b>نوع تسویه:</b> <code>${proposal.paymentMethod}</code>\n` +
+            `🔹 <b>ارز:</b> <code>${escapeHtml(proposal.currency)}</code>\n` +
+            `🔹 <b>نوع تسویه:</b> <code>${escapeHtml(proposal.paymentMethod)}</code>\n` +
             `🔹 <b>مقدار:</b> <code>${proposal.amount.toLocaleString('fa-IR')}</code>\n` +
             `🔹 <b>قیمت واحد:</b> <code>${proposal.price.toLocaleString('fa-IR')}</code> تومان\n` +
             `🔹 <b>مبلغ کل:</b> <code>${(proposal.amount * proposal.price).toLocaleString('fa-IR')}</code> تومان\n` +
             `👤 <b>توسط:</b> ${userMention}\n` +
-            `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(proposal.createdAt, getTimezoneByCountry(dbUser.country))}</code>\n\n` +
+            `📅 <b>تاریخ ثبت:</b> <code>${escapeHtml(formatToShamsi(proposal.createdAt, getTimezoneByCountry(dbUser.country)))}</code>\n\n` +
             `❓ آیا مایل به تایید این آگهی و ارسال آن به گروه هستید؟`;
 
           if (config.ADMIN_CHAT_ID && !isNaN(config.ADMIN_CHAT_ID)) {

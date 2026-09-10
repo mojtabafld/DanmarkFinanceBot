@@ -3,6 +3,7 @@ import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { updateGroupProposalMessage } from '../utils/groupMessage';
 import { mainKeyboard } from '../utils/keyboards';
+import { escapeHtml } from '../utils/html';
 
 export const ADMIN_EDIT_PROP_SCENE_ID = 'ADMIN_EDIT_PROP_SCENE';
 
@@ -46,9 +47,9 @@ export const adminEditPropWizard = new Scenes.WizardScene<MyEditPropContext>(
       
       let promptText = '';
       if (field === 'amount') {
-        promptText = `✏️ **ویرایش مقدار پیشنهاد**\n\nمقدار کنونی: <code>${prop.amount.toLocaleString('fa-IR')} ${prop.currency}</code>\n\nلطفاً مقدار جدید را به صورت عدد انگلیسی بنویسید:`;
+        promptText = `✏️ <b>ویرایش مقدار پیشنهاد</b>\n\nمقدار کنونی: <code>${prop.amount.toLocaleString('fa-IR')} ${escapeHtml(prop.currency)}</code>\n\nلطفاً مقدار جدید را به صورت عدد انگلیسی بنویسید:`;
       } else {
-        promptText = `✏️ **ویرایش قیمت واحد پیشنهاد**\n\nقیمت کنونی: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\nلطفاً قیمت جدید را به تومان (عدد انگلیسی) بنویسید:`;
+        promptText = `✏️ <b>ویرایش قیمت واحد پیشنهاد</b>\n\nقیمت کنونی: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\nلطفاً قیمت جدید را به تومان (عدد انگلیسی) بنویسید:`;
       }
       
       await ctx.reply(promptText, {

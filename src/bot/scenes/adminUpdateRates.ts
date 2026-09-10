@@ -31,8 +31,8 @@ export const adminUpdateRatesWizard = new Scenes.WizardScene<MyRatesWizardContex
     }
 
     await ctx.reply(
-      `📊 **بروزرسانی نرخ‌های ارز**\n\n` +
-      `لطفاً نرخ جدید **کرون دانمارک (DKK)** را به تومان وارد کنید:`,
+      `📊 <b>بروزرسانی نرخ‌های ارز</b>\n\n` +
+      `لطفاً نرخ جدید <b>کرون دانمارک (DKK)</b> را به تومان وارد کنید:`,
       Markup.keyboard([['❌ انصراف']]).resize().oneTime()
     );
     return ctx.wizard.next();
@@ -56,7 +56,7 @@ export const adminUpdateRatesWizard = new Scenes.WizardScene<MyRatesWizardContex
       ctx.wizard.state.dkk = rate;
 
       await ctx.reply(
-        `لطفاً نرخ جدید **یورو (EUR)** را به تومان وارد کنید:`,
+        `لطفاً نرخ جدید <b>یورو (EUR)</b> را به تومان وارد کنید:`,
         Markup.keyboard([['❌ انصراف']]).resize().oneTime()
       );
       return ctx.wizard.next();
@@ -82,7 +82,7 @@ export const adminUpdateRatesWizard = new Scenes.WizardScene<MyRatesWizardContex
       ctx.wizard.state.eur = rate;
 
       await ctx.reply(
-        `لطفاً نرخ جدید **دلار آمریکا (USD)** را به تومان وارد کنید:`,
+        `لطفاً نرخ جدید <b>دلار آمریکا (USD)</b> را به تومان وارد کنید:`,
         Markup.keyboard([['❌ انصراف']]).resize().oneTime()
       );
       return ctx.wizard.next();

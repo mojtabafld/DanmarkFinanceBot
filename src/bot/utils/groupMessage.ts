@@ -1,6 +1,7 @@
 import { Telegram, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
+import { escapeHtml, mentionUser } from './html';
 
 export function getTimezoneByCountry(country?: string | null): string {
   if (!country) return process.env.TIMEZONE || 'Europe/Copenhagen';
@@ -62,9 +63,7 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
     }
 
     const typeHeader = prop.type === 'BUY' ? '🟢 #خرید_ارز' : '🔴 #فروش_ارز';
-    const userMention = prop.creator.username 
-      ? `@${prop.creator.username}` 
-      : `<a href="tg://user?id=${prop.creator.telegramId}">${prop.creator.firstName}</a>`;
+    const userMention = mentionUser(prop.creator);
 
     // Fetch details of deals associated with this ad
     const deals = await prisma.deal.findMany({
@@ -79,8 +78,8 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
       `${header}\n\n` +
       `<b>${typeHeader}</b>\n\n` +
       `🔹 <b>کد حواله:</b> <code>${prop.code ?? '---'}</code>\n` +
-      `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
-      `🔹 <b>نوع تسویه:</b> <code>${prop.paymentMethod ?? '---'}</code>\n` +
+      `🔹 <b>ارز:</b> <code>${escapeHtml(prop.currency)}</code>\n` +
+      `🔹 <b>نوع تسویه:</b> <code>${escapeHtml(prop.paymentMethod ?? '---')}</code>\n` +
       `🔹 <b>مقدار کل:</b> <code>${totalAmount.toLocaleString('fa-IR')}</code>\n`;
 
     if (inProgressAmount > 0) {
@@ -95,7 +94,7 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
       `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
       `🔹 <b>مبلغ کل باقیمانده:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
       `👤 <b>توسط:</b> ${userMention}\n` +
-      `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(prop.createdAt, getTimezoneByCountry(prop.creator.country))}</code>\n`;
+      `📅 <b>تاریخ ثبت:</b> <code>${escapeHtml(formatToShamsi(prop.createdAt, getTimezoneByCountry(prop.creator.country)))}</code>\n`;
 
     if (prop.counterOffers.length > 0) {
       msgText += `\n💬 <b>پیشنهادهای قیمت مطرح شده:</b>\n`;
@@ -110,9 +109,7 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
           statusText = 'رد شده';
         }
         
-        const proposerMention = offer.proposer.username
-          ? `@${offer.proposer.username}`
-          : `<a href="tg://user?id=${offer.proposer.telegramId}">${offer.proposer.firstName}</a>`;
+        const proposerMention = mentionUser(offer.proposer);
           
         msgText += `${statusIcon} مقدار <code>${offer.amount.toLocaleString('fa-IR')}</code> با قیمت <code>${offer.price.toLocaleString('fa-IR')}</code> تومان توسط ${proposerMention} (${statusText})\n`;
       }
@@ -135,9 +132,7 @@ export async function updateGroupProposalMessage(telegram: Telegram, proposalId:
         });
         const tradePrice = acceptedOffer ? acceptedOffer.price : prop.price;
         
-        const acceptorMention = deal.acceptor.username
-          ? `@${deal.acceptor.username}`
-          : `<a href="tg://user?id=${deal.acceptor.telegramId}">${deal.acceptor.firstName}</a>`;
+        const acceptorMention = mentionUser(deal.acceptor);
           
         msgText += `🔹 <b>معامله ${i + 1}:</b> مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> با نرخ <code>${tradePrice.toLocaleString('fa-IR')}</code> تومان توسط ${acceptorMention}\n`;
       }

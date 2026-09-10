@@ -2,6 +2,7 @@ import { Context, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { formatToShamsi } from '../utils/groupMessage';
+import { escapeHtml } from '../utils/html';
 
 /**
  * Handles deep links coming from group inline buttons.
@@ -31,7 +32,7 @@ export async function handleDeepLink(ctx: Context, payload: string) {
           ? `https://t.me/c/${cleanChatId}/${prop.groupMessageId}`
           : `https://t.me/${config.BOT_USERNAME}`;
 
-        text += `🔹 <a href="${link}">حواله #${prop.code ?? prop.id}</a> | <b>${typeText}</b> | تسویه: <code>${prop.paymentMethod ?? '---'}</code> | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${prop.currency} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n`;
+        text += `🔹 <a href="${link}">حواله #${prop.code ?? prop.id}</a> | <b>${typeText}</b> | تسویه: <code>${escapeHtml(prop.paymentMethod ?? '---')}</code> | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(prop.currency)} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n`;
       });
 
       await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
@@ -95,21 +96,21 @@ export async function handleDeepLink(ctx: Context, payload: string) {
     // 2. Format details and ask for confirmation
     const typeText = proposal.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
     const creatorName = proposal.creator.username 
-      ? `@${proposal.creator.username}` 
+      ? `@${escapeHtml(proposal.creator.username)}` 
       : proposal.creator.firstName;
 
     const detailText =
-      `📋 **جزئیات پیشنهاد انتخاب شده:**\n\n` +
-      `🔹 **نوع تراکنش:** ${typeText}\n` +
-      `🔹 **نام ارز:** ${proposal.currency}\n` +
-      `🔹 **مقدار:** ${proposal.amount.toLocaleString('fa-IR')}\n` +
-      `🔹 **قیمت واحد:** ${proposal.price.toLocaleString('fa-IR')} تومان\n` +
-      `🔹 **مبلغ کل:** ${(proposal.amount * proposal.price).toLocaleString('fa-IR')} تومان\n` +
-      `👤 **ثبت‌کننده:** ${creatorName}\n\n` +
+      `📋 <b>جزئیات پیشنهاد انتخاب شده:</b>\n\n` +
+      `🔹 <b>نوع تراکنش:</b> ${typeText}\n` +
+      `🔹 <b>نام ارز:</b> ${escapeHtml(proposal.currency)}\n` +
+      `🔹 <b>مقدار:</b> ${proposal.amount.toLocaleString('fa-IR')}\n` +
+      `🔹 <b>قیمت واحد:</b> ${proposal.price.toLocaleString('fa-IR')} تومان\n` +
+      `🔹 <b>مبلغ کل:</b> ${(proposal.amount * proposal.price).toLocaleString('fa-IR')} تومان\n` +
+      `👤 <b>ثبت‌کننده:</b> ${creatorName}\n\n` +
       `❓ آیا مایل به پذیرش این پیشنهاد هستید؟\n` +
       `⚠️ با پذیرش پیشنهاد، معامله ثبت شده و شما و سازنده پیشنهاد به ادمین متصل خواهید شد تا معامله را تحت نظارت ادمین نهایی کنید.`;
 
-    await ctx.replyWithMarkdown(
+    await ctx.replyWithHTML(
       detailText,
       Markup.inlineKeyboard([
         [Markup.button.callback('🤝 قبول تعداد کل با قیمت اصلی', `ACCEPT_DEAL_${proposal.id}`)],

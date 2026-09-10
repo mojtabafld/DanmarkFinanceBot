@@ -5,11 +5,11 @@ WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat
 
 # Copy dependency files
-COPY package.json tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json ./
 COPY prisma ./prisma/
 
 # Install all dependencies (including devDependencies for TypeScript compilation)
-RUN npm install
+RUN npm ci
 
 # Copy source code and build
 COPY src ./src/
@@ -22,8 +22,8 @@ WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat tesseract-ocr tesseract-ocr-data-dan tesseract-ocr-data-eng
 
 # Copy package files and install only production dependencies
-COPY package.json ./
-RUN npm install --only=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 # Copy compiled code and Prisma files from builder
 COPY --from=builder /app/dist ./dist
@@ -36,4 +36,7 @@ COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/clie
 EXPOSE 3000
 
 # Run migrations and start the application
-CMD ["sh", "-c", "npx prisma db push && npm start"]
+# `migrate deploy` applies the versioned migrations in prisma/migrations.
+# `db push` was used here before; it diffs the schema straight onto the live
+# database and can drop columns without warning.
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]

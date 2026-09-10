@@ -8,6 +8,8 @@ import { UPLOAD_RECEIPT_SCENE_ID } from '../scenes/uploadReceipt';
 import { ACCEPT_DEAL_SCENE_ID } from '../scenes/dealWizard';
 import { updateGroupProposalMessage } from '../utils/groupMessage';
 import { getMainKeyboard, mainKeyboard } from '../utils/keyboards';
+import { AMOUNT_EPSILON } from '../utils/amounts';
+import { escapeHtml } from '../utils/html';
 
 export function registerDealHandlers(bot: Telegraf<BotContext>) {
   bot.hears('🤝 مدیریت پیشنهادات', checkVerified, async (ctx) => {
@@ -20,7 +22,7 @@ export function registerDealHandlers(bot: Telegraf<BotContext>) {
 
   bot.hears('📞 ارتباط مستقیم با ادمین', checkVerified, async (ctx) => {
     await ctx.reply(
-      `📞 **ارتباط مستقیم با مدیریت:**\n\n` +
+      `📞 <b>ارتباط مستقیم با مدیریت:</b>\n\n` +
         `جهت پشتیبانی، پیگیری امور یا سوالات بیشتر می‌توانید مستقیماً به آیدی زیر پیام دهید:\n` +
         `👉 @${config.ADMIN_USERNAME}`,
       mainKeyboard
@@ -88,26 +90,42 @@ export function registerDealHandlers(bot: Telegraf<BotContext>) {
         const tradeAmount = offer.amount > 0 ? offer.amount : offer.proposal.amount;
 
         const newDeal = await prisma.$transaction(async (tx) => {
-          const freshProp = await tx.proposal.findUnique({ where: { id: offer.proposalId } });
-          if (!freshProp || freshProp.status !== 'PENDING' || freshProp.amount < tradeAmount) {
+          // Claim the counter offer first: the conditional update only succeeds for
+          // whichever concurrent request gets there first, so a double tap on the
+          // approve button cannot produce two deals from one offer.
+          const claimedOffer = await tx.counterOffer.updateMany({
+            where: { id: offerId, status: 'PENDING' },
+            data: { status: 'ACCEPTED' }
+          });
+          if (claimedOffer.count !== 1) {
+            throw new Error('OFFER_ALREADY_HANDLED');
+          }
+
+          // Decrement inside the WHERE clause rather than reading, subtracting in JS
+          // and writing back. Under the default read-committed isolation the
+          // read-then-write version let two acceptances both pass the sufficiency
+          // check and oversell the ad.
+          const claimedAmount = await tx.proposal.updateMany({
+            where: {
+              id: offer.proposalId,
+              status: 'PENDING',
+              amount: { gte: tradeAmount }
+            },
+            data: { amount: { decrement: tradeAmount } }
+          });
+          if (claimedAmount.count !== 1) {
             throw new Error('INSUFFICIENT_AMOUNT');
           }
 
-          const remAmount = freshProp.amount - tradeAmount;
-          const newPropStatus = remAmount <= 0 ? 'LOCKED' : 'PENDING';
-
-          await tx.proposal.update({
-            where: { id: offer.proposalId },
-            data: {
-              amount: remAmount,
-              status: newPropStatus
-            }
+          const updatedProp = await tx.proposal.findUniqueOrThrow({
+            where: { id: offer.proposalId }
           });
-
-          await tx.counterOffer.update({
-            where: { id: offerId },
-            data: { status: 'ACCEPTED' }
-          });
+          if (updatedProp.amount <= AMOUNT_EPSILON) {
+            await tx.proposal.update({
+              where: { id: offer.proposalId },
+              data: { amount: 0, status: 'LOCKED' }
+            });
+          }
 
           return await tx.deal.create({
             data: {
@@ -128,12 +146,12 @@ export function registerDealHandlers(bot: Telegraf<BotContext>) {
           `🔹 <b>شناسه معامله:</b> <code>#DEAL_${newDeal.id}</code>\n` +
           `🔹 <b>کد آگهی:</b> <code>#PROP_${offer.proposal.code ?? offer.proposal.id}</code>\n` +
           `🔹 <b>نوع آگهی:</b> ${typeText}\n` +
-          `🔹 <b>ارز:</b> <code>${offer.proposal.currency}</code>\n` +
+          `🔹 <b>ارز:</b> <code>${escapeHtml(offer.proposal.currency)}</code>\n` +
           `🔹 <b>مقدار مورد معامله:</b> <code>${tradeAmount.toLocaleString('fa-IR')}</code>\n` +
           `🔹 <b>نرخ توافقی (پیشنهادی):</b> <code>${offer.price.toLocaleString('fa-IR')}</code> تومان\n` +
           `🔹 <b>مبلغ کل:</b> <code>${(tradeAmount * offer.price).toLocaleString('fa-IR')}</code> تومان\n\n` +
-          `👤 <b>ثبت‌کننده آگهی:</b> ${offer.proposal.creator.firstName} (@${offer.proposal.creator.username ?? '---'})\n` +
-          `👤 <b>پیشنهاددهنده (پذیرنده):</b> ${offer.proposer.firstName} (@${offer.proposer.username ?? '---'})\n\n` +
+          `👤 <b>ثبت‌کننده آگهی:</b> ${escapeHtml(offer.proposal.creator.firstName)} (@${escapeHtml(offer.proposal.creator.username ?? '---')})\n` +
+          `👤 <b>پیشنهاددهنده (پذیرنده):</b> ${escapeHtml(offer.proposer.firstName)} (@${escapeHtml(offer.proposer.username ?? '---')})\n\n` +
           `❓ آیا این معامله و نرخ توافقی را تایید می‌کنید؟`;
 
         await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminNotice, {
@@ -147,7 +165,7 @@ export function registerDealHandlers(bot: Telegraf<BotContext>) {
         });
 
         await ctx.reply(
-          `✅ **پیشنهاد قیمت پذیرفته شد.**\n\n` +
+          `✅ <b>پیشنهاد قیمت پذیرفته شد.</b>\n\n` +
             `درخواست معامله به مدیریت ارسال شد. به محض تایید مدیریت، اطلاعات جهت واریز وجه برای طرفین ارسال خواهد شد.`,
           mainKeyboard
         );
@@ -155,13 +173,15 @@ export function registerDealHandlers(bot: Telegraf<BotContext>) {
         const proposerKb = await getMainKeyboard(offer.proposer.telegramId);
         await ctx.telegram.sendMessage(
           offer.proposer.telegramId,
-          `🎉 **پیشنهاد قیمت شما برای آگهی #${offer.proposal.code ?? offer.proposal.id} توسط ثبت‌کننده پذیرفته شد!**\n\n` +
+          `🎉 <b>پیشنهاد قیمت شما برای آگهی #${offer.proposal.code ?? offer.proposal.id} توسط ثبت‌کننده پذیرفته شد!</b>\n\n` +
             `درخواست معامله برای تایید نهایی به مدیریت ارسال گردید. به محض تایید ادمین، پیام راهنمای پرداخت ارسال خواهد شد.`,
           { ...proposerKb }
         );
       } catch (err: any) {
         if (err.message === 'INSUFFICIENT_AMOUNT') {
           await ctx.reply('⚠️ موجودی باقیمانده این آگهی برای این مقدار کافی نیست.');
+        } else if (err.message === 'OFFER_ALREADY_HANDLED') {
+          await ctx.reply('⚠️ این پیشنهاد هم‌زمان توسط درخواست دیگری تعیین تکلیف شد.');
         } else {
           console.error('Error accepting counter offer:', err);
           await ctx.reply('❌ خطا در تایید پیشنهاد قیمت.');
@@ -206,7 +226,7 @@ export function registerDealHandlers(bot: Telegraf<BotContext>) {
         const proposerKb = await getMainKeyboard(offer.proposer.telegramId);
         await ctx.telegram.sendMessage(
           offer.proposer.telegramId,
-          `❌ **پیشنهاد قیمت شما برای آگهی #${offer.proposal.code ?? offer.proposal.id} توسط ثبت‌کننده آگهی رد گردید.**`,
+          `❌ <b>پیشنهاد قیمت شما برای آگهی #${offer.proposal.code ?? offer.proposal.id} توسط ثبت‌کننده آگهی رد گردید.</b>`,
           { ...proposerKb }
         );
       } catch (err) {
