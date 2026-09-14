@@ -43,6 +43,17 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # `migrate diff` builds the schema in a throwaway database to compare against.
+      # The service container only creates the one named by POSTGRES_DB, so without
+      # this the drift check below dies with "database danmark_ci_shadow does not
+      # exist" rather than telling us anything about the schema.
+      - name: Create the shadow database the drift check needs
+        # Explicit flags rather than $DATABASE_URL: that carries Prisma's
+        # ?schema=public, which libpq rejects as an unknown URI parameter.
+        run: psql -h localhost -U postgres -d danmark_ci -c 'CREATE DATABASE danmark_ci_shadow;'
+        env:
+          PGPASSWORD: postgres
+
       - name: Apply migrations to a clean database
         run: npx prisma migrate deploy
 
