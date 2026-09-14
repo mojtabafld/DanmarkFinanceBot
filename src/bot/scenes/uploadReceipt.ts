@@ -2,6 +2,9 @@ import { Scenes, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
+import { escapeHtml, mentionUser } from '../utils/html';
+import { transitionDeal } from '../../data/deals';
+import { refreshDealCards } from '../handlers/dealCardHandlers';
 
 interface ReceiptState {
   dealId?: number;
@@ -100,7 +103,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
           `👤 <b>به نام:</b> فرشاد صادقی\n\n` +
           `📌 <b>جزئیات معامله:</b>\n` +
           `🔹 آگهی کد <code>${activeDeal.proposal.code ?? activeDeal.proposal.id}</code>\n` +
-          `🔹 مقدار معامله: <code>${activeDeal.amount.toLocaleString('fa-IR')}</code> ${activeDeal.proposal.currency}\n` +
+          `🔹 مقدار معامله: <code>${activeDeal.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(activeDeal.proposal.currency)}\n` +
           `🔹 نرخ توافقی: <code>${agreedPrice.toLocaleString('fa-IR')}</code> تومان`,
           {
             parse_mode: 'HTML',
@@ -128,9 +131,9 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         await ctx.reply(
           `👤 <b>فروشنده گرامی</b>\n\n` +
           `خریدار وجه ریالی را واریز و مدیریت آن را تایید کرده است.\n` +
-          `لطفاً مقدار <code>${activeDeal.amount.toLocaleString('fa-IR')}</code> ${activeDeal.proposal.currency} را به حساب خریدار واریز کرده و تصویر فیش واریزی را ارسال کنید.\n\n` +
+          `لطفاً مقدار <code>${activeDeal.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(activeDeal.proposal.currency)} را به حساب خریدار واریز کرده و تصویر فیش واریزی را ارسال کنید.\n\n` +
           `📋 <b>اطلاعات حساب خریدار جهت واریز کرون:</b>\n` +
-          `<code>${activeDeal.buyerPaymentInfo ?? 'ثبت نشده'}</code>\n\n` +
+          `<code>${escapeHtml(activeDeal.buyerPaymentInfo ?? 'ثبت نشده')}</code>\n\n` +
           `📌 <b>جزئیات معامله:</b>\n` +
           `🔹 آگهی کد <code>${activeDeal.proposal.code ?? activeDeal.proposal.id}</code>\n` +
           `🔹 نرخ توافقی: <code>${agreedPrice.toLocaleString('fa-IR')}</code> تومان\n` +
@@ -340,30 +343,42 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
           return ctx.scene.leave();
         }
 
-        // Update status in DB
-        const newStatus = role === 'BUYER' ? 'BUYER_PAID_PENDING_APPROVAL' : 'SELLER_PAID_PENDING_APPROVAL';
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: {
-            status: newStatus,
-            buyerPaymentInfo: role === 'BUYER' ? buyerPaymentInfo : undefined
-          }
-        });
+        // The buyer's account details are part of what the admin checks the receipt
+        // against, so they are stored before the state moves.
+        if (role === 'BUYER' && buyerPaymentInfo) {
+          await prisma.deal.update({ where: { id: dealId }, data: { buyerPaymentInfo } });
+        }
+
+        const moved = await transitionDeal(
+          dealId,
+          { type: role === 'BUYER' ? 'BUYER_UPLOAD_RECEIPT' : 'SELLER_UPLOAD_RECEIPT' },
+          ctx.from!.id.toString()
+        );
+
+        if (!moved.ok) {
+          await ctx.reply(
+            '⚠️ وضعیت این معامله هم‌زمان تغییر کرد. لطفاً وضعیت فعلی را بررسی کنید.',
+            mainKeyboard
+          );
+          return ctx.scene.leave();
+        }
+
+        await refreshDealCards(ctx.telegram, dealId);
 
         // Notify Admin
         if (role === 'BUYER') {
           const buyerMention = deal.proposal.type === 'BUY'
-            ? (deal.proposal.creator.username ? `@${deal.proposal.creator.username}` : `<a href="tg://user?id=${deal.proposal.creator.telegramId}">${deal.proposal.creator.firstName}</a>`)
-            : (deal.acceptor.username ? `@${deal.acceptor.username}` : `<a href="tg://user?id=${deal.acceptor.telegramId}">${deal.acceptor.firstName}</a>`);
+            ? (mentionUser(deal.proposal.creator))
+            : (mentionUser(deal.acceptor));
 
           const adminMsgText =
             `🧾 <b>فیش واریز وجه ریالی (خریدار)</b>\n\n` +
             `👤 <b>خریدار:</b> ${buyerMention}\n` +
             `🔹 <b>مبلغ کل معامله:</b> <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
             `🔹 <b>آگهی مربوطه:</b> کد ${deal.proposal.code ?? deal.proposalId}\n` +
-            `🔹 <b>مقدار معامله:</b> <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency}\n` +
+            `🔹 <b>مقدار معامله:</b> <code>${deal.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(deal.proposal.currency)}\n` +
             `📌 <b>اطلاعات حساب خریدار جهت واریز کرون:</b>\n` +
-            `<code>${buyerPaymentInfo}</code>\n\n` +
+            `<code>${escapeHtml(buyerPaymentInfo)}</code>\n\n` +
             `❓ آیا فیش واریزی خریدار مورد تایید است؟`;
 
           await ctx.telegram.sendPhoto(config.ADMIN_CHAT_ID, fileId, {
@@ -371,24 +386,24 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
               [
-                Markup.button.callback('✅ تایید فیش خریدار', `APPROVE_BUYER_RECEIPT_${deal.id}`),
+                Markup.button.callback('✅ تایید فیش خریدار', `CONFIRM_BUYER_RECEIPT_${deal.id}`),
                 Markup.button.callback('❌ رد فیش خریدار', `REJECT_BUYER_RECEIPT_${deal.id}`)
               ]
             ])
           });
         } else {
           const sellerMention = deal.proposal.type === 'SELL'
-            ? (deal.proposal.creator.username ? `@${deal.proposal.creator.username}` : `<a href="tg://user?id=${deal.proposal.creator.telegramId}">${deal.proposal.creator.firstName}</a>`)
-            : (deal.acceptor.username ? `@${deal.acceptor.username}` : `<a href="tg://user?id=${deal.acceptor.telegramId}">${deal.acceptor.firstName}</a>`);
+            ? (mentionUser(deal.proposal.creator))
+            : (mentionUser(deal.acceptor));
 
           const adminMsgText =
             `🧾 <b>فیش انتقال کرون (فروشنده)</b>\n\n` +
             `👤 <b>فروشنده:</b> ${sellerMention}\n` +
-            `🔹 <b>مقدار انتقال:</b> <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency}\n` +
+            `🔹 <b>مقدار انتقال:</b> <code>${deal.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(deal.proposal.currency)}\n` +
             `🔹 <b>آگهی مربوطه:</b> کد ${deal.proposal.code ?? deal.proposalId}\n` +
             `🔹 <b>مبلغ کل معامله:</b> <code>${totalValue.toLocaleString('fa-IR')}</code> تومان\n` +
             `📌 <b>اطلاعات حساب خریدار جهت تطبیق:</b>\n` +
-            `<code>${deal.buyerPaymentInfo ?? 'ثبت نشده'}</code>\n\n` +
+            `<code>${escapeHtml(deal.buyerPaymentInfo ?? 'ثبت نشده')}</code>\n\n` +
             `❓ آیا فیش انتقال فروشنده مورد تایید است؟`;
 
           await ctx.telegram.sendPhoto(config.ADMIN_CHAT_ID, fileId, {
@@ -396,7 +411,7 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
               [
-                Markup.button.callback('✅ تایید فیش فروشنده', `APPROVE_SELLER_RECEIPT_${deal.id}`),
+                Markup.button.callback('✅ تایید فیش فروشنده', `CONFIRM_SELLER_RECEIPT_${deal.id}`),
                 Markup.button.callback('❌ رد فیش فروشنده', `REJECT_SELLER_RECEIPT_${deal.id}`)
               ]
             ])
@@ -407,13 +422,11 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
         return ctx.scene.leave();
       } catch (err) {
         console.error('Error handling uploaded receipt photo:', err);
-        const errMsg = err instanceof Error ? err.message : String(err);
+        // The underlying error goes to the logs above, not to the user: internal
+        // failure text is not actionable for them and can leak implementation detail.
         await ctx.reply(
-          `❌ خطا در فرآیند ارسال فیش به مدیریت.\n\n⚠️ <b>علت خطا:</b> <code>${errMsg}</code>`,
-          {
-            parse_mode: 'HTML',
-            ...mainKeyboard
-          }
+          '❌ خطا در فرآیند ارسال فیش به مدیریت. لطفاً دوباره تلاش کنید و در صورت تکرار با پشتیبانی تماس بگیرید.',
+          mainKeyboard
         );
         return ctx.scene.leave();
       }

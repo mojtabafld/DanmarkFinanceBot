@@ -8,6 +8,7 @@ import { CREATE_PROPOSAL_SCENE_ID } from '../scenes/createProposal';
 import { EDIT_PROPOSAL_SCENE_ID } from '../scenes/editProposal';
 import { MANAGE_OFFERS_SCENE_ID } from '../scenes/manageOffers';
 import { updateGroupProposalMessage } from '../utils/groupMessage';
+import { escapeHtml } from '../utils/html';
 
 export function registerProposalHandlers(bot: Telegraf<BotContext>) {
   bot.hears('📋 مدیریت آگهی‌ها', checkVerified, async (ctx) => {
@@ -37,7 +38,7 @@ export function registerProposalHandlers(bot: Telegraf<BotContext>) {
           ? `https://t.me/c/${cleanChatId}/${prop.groupMessageId}`
           : `https://t.me/${config.BOT_USERNAME}`;
 
-        text += `🔹 <a href="${link}">حواله #${prop.code ?? prop.id}</a> | <b>${typeText}</b> | تسویه: <code>${prop.paymentMethod ?? '---'}</code> | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${prop.currency} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n`;
+        text += `🔹 <a href="${link}">حواله #${prop.code ?? prop.id}</a> | <b>${typeText}</b> | تسویه: <code>${escapeHtml(prop.paymentMethod ?? '---')}</code> | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(prop.currency)} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n\n`;
       });
 
       await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
@@ -177,7 +178,7 @@ export function registerProposalHandlers(bot: Telegraf<BotContext>) {
           await ctx.telegram
             .sendMessage(
               offer.proposer.telegramId,
-              `⚠️ **اطلاعیه:** پیشنهاد قیمت <code>${offer.price.toLocaleString('fa-IR')}</code> تومانی شما برای آگهی #${prop.code ?? prop.id} به علت لغو شدن آگهی توسط سازنده، بسته شد.`,
+              `⚠️ <b>اطلاعیه:</b> پیشنهاد قیمت <code>${offer.price.toLocaleString('fa-IR')}</code> تومانی شما برای آگهی #${prop.code ?? prop.id} به علت لغو شدن آگهی توسط سازنده، بسته شد.`,
               { parse_mode: 'HTML' }
             )
             .catch(() => {});

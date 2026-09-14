@@ -3,6 +3,7 @@ import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
 import { updateGroupProposalMessage } from '../utils/groupMessage';
+import { escapeHtml } from '../utils/html';
 
 export const MANAGE_ADS_SCENE_ID = 'MANAGE_ADS_SCENE';
 
@@ -55,11 +56,11 @@ async function handleMenuText(ctx: MyManageAdsContext) {
         return;
       }
 
-      let summary = `📦 **آرشیو آگهی‌های شما (تا ۱۰ آگهی آخر):**\n\n`;
+      let summary = `📦 <b>آرشیو آگهی‌های شما (تا ۱۰ آگهی آخر):</b>\n\n`;
       archived.forEach(prop => {
         const typeText = prop.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
         const statusText = prop.status === 'COMPLETED' ? '✅ معامله شده' : '❌ لغو شده';
-        summary += `🔹 **کد ${prop.code ?? prop.id}** | ${typeText} | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${prop.currency} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان | وضعیت: ${statusText}\n\n`;
+        summary += `🔹 <b>کد ${prop.code ?? prop.id}</b> | ${typeText} | مقدار: <code>${prop.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(prop.currency)} | نرخ: <code>${prop.price.toLocaleString('fa-IR')}</code> تومان | وضعیت: ${statusText}\n\n`;
       });
 
       await ctx.replyWithHTML(summary, manageAdsMenuKeyboard);
@@ -93,7 +94,7 @@ async function handleMenuText(ctx: MyManageAdsContext) {
       const buttons = active.map(prop => {
         const typeText = prop.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
         return [Markup.button.callback(
-          `کد ${prop.code ?? prop.id} | ${typeText} | ${prop.amount.toLocaleString('fa-IR')} ${prop.currency}`,
+          `کد ${prop.code ?? prop.id} | ${typeText} | ${prop.amount.toLocaleString('fa-IR')} ${escapeHtml(prop.currency)}`,
           `SELECT_ACTIVE_AD_${prop.id}`
         )];
       });
@@ -114,7 +115,7 @@ async function handleMenuText(ctx: MyManageAdsContext) {
   }
 
   // Default fallback text
-  await ctx.reply('📋 **منوی مدیریت آگهی‌های شما:**\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:', manageAdsMenuKeyboard);
+  await ctx.reply('📋 <b>منوی مدیریت آگهی‌های شما:</b>\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:', manageAdsMenuKeyboard);
 }
 
 export const manageAdsWizard = new Scenes.WizardScene<MyManageAdsContext>(
@@ -127,7 +128,7 @@ export const manageAdsWizard = new Scenes.WizardScene<MyManageAdsContext>(
     if (ctx.message && 'text' in ctx.message) {
       return handleMenuText(ctx);
     }
-    await ctx.reply('📋 **منوی مدیریت آگهی‌های شما:**\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:', manageAdsMenuKeyboard);
+    await ctx.reply('📋 <b>منوی مدیریت آگهی‌های شما:</b>\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:', manageAdsMenuKeyboard);
   },
 
   // Step 2: Handle Active Ads Selection, Edit and Delete Actions
@@ -162,7 +163,7 @@ export const manageAdsWizard = new Scenes.WizardScene<MyManageAdsContext>(
           const buttons = active.map(prop => {
             const typeText = prop.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
             return [Markup.button.callback(
-              `کد ${prop.code ?? prop.id} | ${typeText} | ${prop.amount.toLocaleString('fa-IR')} ${prop.currency}`,
+              `کد ${prop.code ?? prop.id} | ${typeText} | ${prop.amount.toLocaleString('fa-IR')} ${escapeHtml(prop.currency)}`,
               `SELECT_ACTIVE_AD_${prop.id}`
             )];
           });
@@ -190,13 +191,13 @@ export const manageAdsWizard = new Scenes.WizardScene<MyManageAdsContext>(
 
           const typeText = prop.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
           const details = 
-            `📋 **جزئیات آگهی فعال شما:**\n\n` +
-            `🔹 **کد آگهی:** ${prop.code ?? prop.id}\n` +
-            `🔹 **نوع:** ${typeText}\n` +
-            `🔹 **ارز:** ${prop.currency}\n` +
-            `🔹 **مقدار فعلی:** <code>${prop.amount.toLocaleString('fa-IR')}</code> (از کل <code>${(prop.originalAmount ?? prop.amount).toLocaleString('fa-IR')}</code>)\n` +
-            `🔹 **نرخ واحد:** <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
-            `🔹 **تسویه:** ${prop.paymentMethod || 'ثبت نشده'}\n\n` +
+            `📋 <b>جزئیات آگهی فعال شما:</b>\n\n` +
+            `🔹 <b>کد آگهی:</b> ${prop.code ?? prop.id}\n` +
+            `🔹 <b>نوع:</b> ${typeText}\n` +
+            `🔹 <b>ارز:</b> ${escapeHtml(prop.currency)}\n` +
+            `🔹 <b>مقدار فعلی:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code> (از کل <code>${(prop.originalAmount ?? prop.amount).toLocaleString('fa-IR')}</code>)\n` +
+            `🔹 <b>نرخ واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
+            `🔹 <b>تسویه:</b> ${escapeHtml(prop.paymentMethod || 'ثبت نشده')}\n\n` +
             `👇 عملیات مورد نظر خود را برای این آگهی انتخاب کنید:`;
 
           await ctx.replyWithHTML(
@@ -228,7 +229,7 @@ export const manageAdsWizard = new Scenes.WizardScene<MyManageAdsContext>(
         if (isNaN(propId)) return;
 
         await ctx.reply(
-          `⚠️ **حذف آگهی**\nآیا از حذف و لغو کامل آگهی کد #${propId} اطمینان دارید؟\nاین آگهی از گروه معاملاتی حذف خواهد شد.`,
+          `⚠️ <b>حذف آگهی</b>\nآیا از حذف و لغو کامل آگهی کد #${propId} اطمینان دارید؟\nاین آگهی از گروه معاملاتی حذف خواهد شد.`,
           Markup.inlineKeyboard([
             [
               Markup.button.callback('✅ بله، حذف کن', `CONFIRM_DELETE_AD_${propId}`),
@@ -288,8 +289,8 @@ export const manageAdsWizard = new Scenes.WizardScene<MyManageAdsContext>(
 
           // Notify counter-offerers
           const notifyMsg = 
-            `⚠️ **اطلاعیه لغو آگهی**\n\n` +
-            `کاربر گرامی، آگهی کد <code>${prop.code ?? prop.id}</code> (${prop.amount.toLocaleString('fa-IR')} ${prop.currency}) که شما روی آن پیشنهاد قیمت ثبت کرده بودید، توسط آگهی‌دهنده لغو و حذف گردید.\n` +
+            `⚠️ <b>اطلاعیه لغو آگهی</b>\n\n` +
+            `کاربر گرامی، آگهی کد <code>${prop.code ?? prop.id}</code> (${prop.amount.toLocaleString('fa-IR')} ${escapeHtml(prop.currency)}) که شما روی آن پیشنهاد قیمت ثبت کرده بودید، توسط آگهی‌دهنده لغو و حذف گردید.\n` +
             `در نتیجه پیشنهاد قیمت شما نیز به صورت خودکار ملغی شد.`;
 
           for (const offer of pendingOffers) {
@@ -313,7 +314,7 @@ export const manageAdsWizard = new Scenes.WizardScene<MyManageAdsContext>(
             const buttons = active.map(p => {
               const typeText = p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش';
               return [Markup.button.callback(
-                `کد ${p.code ?? p.id} | ${typeText} | ${p.amount.toLocaleString('fa-IR')} ${p.currency}`,
+                `کد ${p.code ?? p.id} | ${typeText} | ${p.amount.toLocaleString('fa-IR')} ${escapeHtml(p.currency)}`,
                 `SELECT_ACTIVE_AD_${p.id}`
               )];
             });

@@ -2,6 +2,7 @@ import { Scenes, Markup } from 'telegraf';
 import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
 import { formatToShamsi } from '../utils/groupMessage';
+import { canOperate } from '../../data/admins';
 
 interface RatesState {
   dkk?: number;
@@ -25,14 +26,14 @@ export const adminUpdateRatesWizard = new Scenes.WizardScene<MyRatesWizardContex
     ctx.scene.state = {};
     ctx.wizard.state = ctx.scene.state;
     const from = ctx.from;
-    if (!from || from.id.toString() !== config.ADMIN_CHAT_ID.toString()) {
+    if (!from || !(await canOperate(from.id))) {
       await ctx.reply('⚠️ شما مجاز به استفاده از این سناریو نیستید.');
       return ctx.scene.leave();
     }
 
     await ctx.reply(
-      `📊 **بروزرسانی نرخ‌های ارز**\n\n` +
-      `لطفاً نرخ جدید **کرون دانمارک (DKK)** را به تومان وارد کنید:`,
+      `📊 <b>بروزرسانی نرخ‌های ارز</b>\n\n` +
+      `لطفاً نرخ جدید <b>کرون دانمارک (DKK)</b> را به تومان وارد کنید:`,
       Markup.keyboard([['❌ انصراف']]).resize().oneTime()
     );
     return ctx.wizard.next();
@@ -56,7 +57,7 @@ export const adminUpdateRatesWizard = new Scenes.WizardScene<MyRatesWizardContex
       ctx.wizard.state.dkk = rate;
 
       await ctx.reply(
-        `لطفاً نرخ جدید **یورو (EUR)** را به تومان وارد کنید:`,
+        `لطفاً نرخ جدید <b>یورو (EUR)</b> را به تومان وارد کنید:`,
         Markup.keyboard([['❌ انصراف']]).resize().oneTime()
       );
       return ctx.wizard.next();
@@ -82,7 +83,7 @@ export const adminUpdateRatesWizard = new Scenes.WizardScene<MyRatesWizardContex
       ctx.wizard.state.eur = rate;
 
       await ctx.reply(
-        `لطفاً نرخ جدید **دلار آمریکا (USD)** را به تومان وارد کنید:`,
+        `لطفاً نرخ جدید <b>دلار آمریکا (USD)</b> را به تومان وارد کنید:`,
         Markup.keyboard([['❌ انصراف']]).resize().oneTime()
       );
       return ctx.wizard.next();

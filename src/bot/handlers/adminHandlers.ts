@@ -8,12 +8,53 @@ import { ADMIN_SEARCH_SCENE_ID } from '../scenes/adminSearch';
 import { ADMIN_EDIT_USER_SCENE_ID, ADMIN_REJECT_USER_SCENE_ID } from '../scenes/adminEditUser';
 import { ADMIN_EDIT_PROP_SCENE_ID } from '../scenes/adminEditProp';
 import { ADMIN_UPDATE_RATES_SCENE_ID } from '../scenes/adminUpdateRates';
+import { canOperate, notifyChatId } from '../../data/admins';
+import { recordAudit, snapshot } from '../../data/audit';
+import { transitionDeal } from '../../data/deals';
+import { refreshDealCards } from './dealCardHandlers';
+import { applyDealEvent } from '../../domain/dealMachine';
+import { escapeHtml, mentionUser } from '../utils/html';
+
+/**
+ * Callback-data prefixes that only the admin may trigger. Kept in one place so a
+ * new admin button cannot silently ship without an authorization check.
+ */
+export const ADMIN_CALLBACK_PREFIXES = [
+  'ADMIN_',
+  'APPROVE_USER_',
+  'REJECT_USER_',
+  'CONFIRM_BUYER_RECEIPT_',
+  'REJECT_BUYER_RECEIPT_',
+  'CONFIRM_SELLER_RECEIPT_',
+  'REJECT_SELLER_RECEIPT_'
+] as const;
+
+/**
+ * Buttons already delivered to Telegram keep the callback data they were sent with
+ * forever, so receipt buttons from before the CONFIRM_/APPROVE_ rename still arrive
+ * under the old names. Map them onto the names the handlers below actually match.
+ */
+const CALLBACK_ALIASES: Record<string, string> = {
+  APPROVE_BUYER_RECEIPT_: 'CONFIRM_BUYER_RECEIPT_',
+  APPROVE_SELLER_RECEIPT_: 'CONFIRM_SELLER_RECEIPT_'
+};
+
+export function normalizeCallbackData(data: string): string {
+  for (const [alias, canonical] of Object.entries(CALLBACK_ALIASES)) {
+    if (data.startsWith(alias)) return canonical + data.slice(alias.length);
+  }
+  return data;
+}
+
+export function isAdminCallback(data: string): boolean {
+  return ADMIN_CALLBACK_PREFIXES.some(prefix => data.startsWith(prefix));
+}
 
 export function registerAdminHandlers(bot: Telegraf<BotContext>) {
   // Admin Command (/admin)
   bot.command('admin', async (ctx) => {
     const from = ctx.from;
-    if (!from || from.id.toString() !== config.ADMIN_CHAT_ID.toString()) {
+    if (!from || !(await canOperate(from.id))) {
       await ctx.reply('⚠️ شما مجاز به استفاده از این دستور نیستید.');
       return;
     }
@@ -40,22 +81,16 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
   bot.use(async (ctx, next) => {
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return next();
-    const data = ctx.callbackQuery.data;
+    const data = normalizeCallbackData(ctx.callbackQuery.data);
     const from = ctx.from;
     if (!from) return next();
 
-    const isAdmin = from.id.toString() === config.ADMIN_CHAT_ID.toString();
+    // Identity is a lookup against the Admin table now. Comparing the sender against
+    // ADMIN_CHAT_ID could never match when that id named a group, which is what the
+    // setup docs told operators to configure.
+    const isAdmin = await canOperate(from.id);
 
-    if (
-      (data.startsWith('ADMIN_') ||
-        data.startsWith('APPROVE_USER_') ||
-        data.startsWith('REJECT_USER_') ||
-        data.startsWith('CONFIRM_BUYER_RECEIPT_') ||
-        data.startsWith('REJECT_BUYER_RECEIPT_') ||
-        data.startsWith('CONFIRM_SELLER_RECEIPT_') ||
-        data.startsWith('REJECT_SELLER_RECEIPT_')) &&
-      !isAdmin
-    ) {
+    if (isAdminCallback(data) && !isAdmin) {
       await ctx.answerCbQuery('⚠️ این دکمه مخصوص مدیریت ربات است.', { show_alert: true });
       return;
     }
@@ -153,7 +188,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         const buttons = users.map((u) => [
           Markup.button.callback(
-            `${u.fullName || u.firstName} (@${u.username || 'ندارد'})`,
+            `${escapeHtml(u.fullName || u.firstName)} (@${escapeHtml(u.username || 'ندارد')})`,
             `ADMIN_USER_VIEW_${u.id}`
           )
         ]);
@@ -223,7 +258,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         const buttons = users.map((u) => [
           Markup.button.callback(
-            `⏳ ${u.fullName || u.firstName} (@${u.username || 'ندارد'})`,
+            `⏳ ${escapeHtml(u.fullName || u.firstName)} (@${escapeHtml(u.username || 'ندارد')})`,
             `ADMIN_USER_VIEW_${u.id}`
           )
         ]);
@@ -293,7 +328,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         const buttons = users.map((u) => [
           Markup.button.callback(
-            `❌ ${u.fullName || u.firstName} (@${u.username || 'ندارد'})`,
+            `❌ ${escapeHtml(u.fullName || u.firstName)} (@${escapeHtml(u.username || 'ندارد')})`,
             `ADMIN_USER_VIEW_${u.id}`
           )
         ]);
@@ -353,15 +388,15 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         const detailsText =
           `👤 <b>مشخصات کاربر:</b>\n\n` +
-          `🔹 <b>نام واقعی:</b> <code>${u.fullName || 'ثبت نشده'}</code>\n` +
-          `🔹 <b>نام کاربری:</b> @${u.username || 'ندارد'}\n` +
-          `🔹 <b>شماره تماس:</b> <code>${u.phoneNumber || 'ثبت نشده'}</code>\n` +
-          `🔹 <b>کشور محل اقامت:</b> <code>${u.country || 'ثبت نشده'}</code>\n` +
+          `🔹 <b>نام واقعی:</b> <code>${escapeHtml(u.fullName || 'ثبت نشده')}</code>\n` +
+          `🔹 <b>نام کاربری:</b> @${escapeHtml(u.username || 'ندارد')}\n` +
+          `🔹 <b>شماره تماس:</b> <code>${escapeHtml(u.phoneNumber || 'ثبت نشده')}</code>\n` +
+          `🔹 <b>کشور محل اقامت:</b> <code>${escapeHtml(u.country || 'ثبت نشده')}</code>\n` +
           `🔹 <b>وضعیت کنونی:</b> <code>${u.verificationStatus}</code>\n` +
           `🔹 <b>حد مجاز روزانه:</b> <code>${u.dailyProposalLimit}</code> پیشنهاد\n` +
           `🔹 <b>تعداد پیشنهادها:</b> <code>${proposalsCount}</code> (فعال: <code>${activeProposalsCount}</code>)\n` +
           `🔹 <b>شناسه تلگرام:</b> <code>${u.telegramId}</code>` +
-          (u.rejectReason ? `\n💬 <b>علت رد/لغو:</b> <code>${u.rejectReason}</code>` : '');
+          (u.rejectReason ? `\n💬 <b>علت رد/لغو:</b> <code>${escapeHtml(u.rejectReason)}</code>` : '');
 
         const buttons = [];
 
@@ -463,7 +498,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
             .catch(() => {});
 
           await ctx.reply(
-            `🗑 کاربر **${user.fullName || user.firstName}** به همراه تمامی داده‌هایش حذف و از گروه اخراج شد.`
+            `🗑 کاربر <b>${escapeHtml(user.fullName || user.firstName)}</b> به همراه تمامی داده‌هایش حذف و از گروه اخراج شد.`
           );
           await ctx.deleteMessage().catch(() => {});
         }
@@ -518,22 +553,22 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         });
 
         const userMsg =
-          `🎉 **احراز هویت شما با موفقیت توسط مدیریت تایید شد!**\n\n` +
+          `🎉 <b>احراز هویت شما با موفقیت توسط مدیریت تایید شد!</b>\n\n` +
           `لینک عضویت یک‌بار مصرف شما در گروه معاملاتی دانمارک (دارای اعتبار ۲۴ ساعته):\n` +
           `🔗 ${inviteLink.invite_link}\n\n` +
           `پس از عضویت در گروه، می‌توانید پیشنهادهای خود را از دکمه‌های زیر ثبت و مدیریت کنید.`;
 
         await ctx.telegram.sendMessage(user.telegramId, userMsg, {
-          parse_mode: 'Markdown',
+          parse_mode: 'HTML',
           ...mainKeyboard
         });
 
         const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
         const confirmationText =
-          `✅ **احراز هویت کاربر تایید شد**\n\n` +
-          `👤 **نام کامل:** ${user.fullName}\n` +
-          `🌍 **کشور:** ${user.country}\n` +
-          `📱 **تلفن:** ${user.phoneNumber}\n\n` +
+          `✅ <b>احراز هویت کاربر تایید شد</b>\n\n` +
+          `👤 <b>نام کامل:</b> ${escapeHtml(user.fullName)}\n` +
+          `🌍 <b>کشور:</b> ${escapeHtml(user.country)}\n` +
+          `📱 <b>تلفن:</b> ${escapeHtml(user.phoneNumber)}\n\n` +
           `🔗 لینک عضویت صادر و ارسال شد.`;
 
         if (hasPhoto) {
@@ -574,15 +609,15 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         const detailsText =
           `⚙️ <b>مدیریت کاربر از روی پیشنهاد گروه:</b>\n\n` +
           `👤 <b>مشخصات کاربر:</b>\n` +
-          `🔹 <b>نام واقعی:</b> <code>${u.fullName || 'ثبت نشده'}</code>\n` +
-          `🔹 <b>نام کاربری:</b> @${u.username || 'ندارد'}\n` +
-          `🔹 <b>شماره تماس:</b> <code>${u.phoneNumber || 'ثبت نشده'}</code>\n` +
-          `🔹 <b>کشور محل اقامت:</b> <code>${u.country || 'ثبت نشده'}</code>\n` +
+          `🔹 <b>نام واقعی:</b> <code>${escapeHtml(u.fullName || 'ثبت نشده')}</code>\n` +
+          `🔹 <b>نام کاربری:</b> @${escapeHtml(u.username || 'ندارد')}\n` +
+          `🔹 <b>شماره تماس:</b> <code>${escapeHtml(u.phoneNumber || 'ثبت نشده')}</code>\n` +
+          `🔹 <b>کشور محل اقامت:</b> <code>${escapeHtml(u.country || 'ثبت نشده')}</code>\n` +
           `🔹 <b>وضعیت کنونی:</b> <code>${u.verificationStatus}</code>\n` +
           `🔹 <b>حد مجاز روزانه:</b> <code>${u.dailyProposalLimit}</code> پیشنهاد\n` +
           `🔹 <b>تعداد پیشنهادها:</b> <code>${proposalsCount}</code> (فعال: <code>${activeProposalsCount}</code>)\n` +
           `🔹 <b>شناسه تلگرام:</b> <code>${u.telegramId}</code>` +
-          (u.rejectReason ? `\n💬 <b>علت رد/لغو:</b> <code>${u.rejectReason}</code>` : '');
+          (u.rejectReason ? `\n💬 <b>علت رد/لغو:</b> <code>${escapeHtml(u.rejectReason)}</code>` : '');
 
         const buttons = [];
 
@@ -666,7 +701,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         const buttons = props.map((p) => [
           Markup.button.callback(
-            `[${p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}] ${p.amount.toLocaleString('fa-IR')} ${p.currency} (توسط ${p.creator.fullName || p.creator.firstName})`,
+            `[${p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}] ${p.amount.toLocaleString('fa-IR')} ${escapeHtml(p.currency)} (توسط ${escapeHtml(p.creator.fullName || p.creator.firstName)})`,
             `ADMIN_PROP_VIEW_${p.id}`
           )
         ]);
@@ -731,7 +766,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
 
         if (props.length === 0 && page === 0) {
-          const emptyText = `📋 کاربر **${u.fullName || u.firstName}** هیچ پیشنهادی ثبت نکرده است.`;
+          const emptyText = `📋 کاربر <b>${escapeHtml(u.fullName || u.firstName)}</b> هیچ پیشنهادی ثبت نکرده است.`;
           const emptyMarkup = Markup.inlineKeyboard([
             [Markup.button.callback('👤 بازگشت به پرونده کاربر', `ADMIN_USER_VIEW_${userId}`)]
           ]);
@@ -746,7 +781,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         const buttons = props.map((p) => [
           Markup.button.callback(
-            `[${p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}] ${p.amount.toLocaleString('fa-IR')} ${p.currency} [${p.status}]`,
+            `[${p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}] ${p.amount.toLocaleString('fa-IR')} ${escapeHtml(p.currency)} [${p.status}]`,
             `ADMIN_PROP_VIEW_${p.id}`
           )
         ]);
@@ -766,7 +801,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         const totalPages = Math.ceil(total / pageSize) || 1;
         const msgText =
-          `📋 <b>پیشنهادات کاربر: ${u.fullName || u.firstName}</b>\n` +
+          `📋 <b>پیشنهادات کاربر: ${escapeHtml(u.fullName || u.firstName)}</b>\n` +
           `صفحه <code>${page + 1}</code> از <code>${totalPages}</code> (کل: <code>${total}</code> پیشنهاد)\n\n` +
           `جهت مدیریت پیشنهاد کلیک کنید:`;
 
@@ -806,10 +841,10 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         const details =
           `📋 <b>مشخصات کامل پیشنهاد معاملاتی:</b>\n\n` +
           `🔹 <b>شناسه پیشنهاد:</b> <code>#${prop.id}</code>\n` +
-          `🔹 <b>ثبت‌کننده:</b> <code>${prop.creator.fullName || prop.creator.firstName}</code> (@${prop.creator.username || 'ندارد'})\n` +
+          `🔹 <b>ثبت‌کننده:</b> <code>${escapeHtml(prop.creator.fullName || prop.creator.firstName)}</code> (@${escapeHtml(prop.creator.username || 'ندارد')})\n` +
           `🔹 <b>شناسه تلگرام ثبت‌کننده:</b> <code>${prop.creator.telegramId}</code>\n` +
           `🔹 <b>نوع معامله:</b> ${prop.type === 'BUY' ? '🟢 خرید (Buy)' : '🔴 فروش (Sell)'}\n` +
-          `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
+          `🔹 <b>ارز:</b> <code>${escapeHtml(prop.currency)}</code>\n` +
           `🔹 <b>مقدار:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
           `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
           `🔹 <b>مبلغ کل:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
@@ -888,7 +923,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         await ctx.telegram
           .sendMessage(
             prop.creator.telegramId,
-            `⚠️ **پیشنهاد معامله شما (شماره #${propId}) توسط مدیریت ربات لغو شد.**`
+            `⚠️ <b>پیشنهاد معامله شما (شماره #${propId}) توسط مدیریت ربات لغو شد.</b>`
           )
           .catch(() => {});
 
@@ -1054,7 +1089,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         const buttons = props.map((p) => [
           Markup.button.callback(
-            `[${p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}] ${p.amount.toLocaleString('fa-IR')} ${p.currency} (توسط ${p.creator.fullName || p.creator.firstName})`,
+            `[${p.type === 'BUY' ? '🟢 خرید' : '🔴 فروش'}] ${p.amount.toLocaleString('fa-IR')} ${escapeHtml(p.currency)} (توسط ${escapeHtml(p.creator.fullName || p.creator.firstName)})`,
             `ADMIN_PROP_VIEW_${p.id}`
           )
         ]);
@@ -1128,7 +1163,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         const buttons = props.map((p) => [
           Markup.button.callback(
-            `[${p.status === 'COMPLETED' ? '✅ موفق' : '❌ لغو'}] ${p.amount.toLocaleString('fa-IR')} ${p.currency} (توسط ${p.creator.fullName || p.creator.firstName})`,
+            `[${p.status === 'COMPLETED' ? '✅ موفق' : '❌ لغو'}] ${p.amount.toLocaleString('fa-IR')} ${escapeHtml(p.currency)} (توسط ${escapeHtml(p.creator.fullName || p.creator.firstName)})`,
             `ADMIN_PROP_VIEW_${p.id}`
           )
         ]);
@@ -1191,22 +1226,20 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         }
 
         const typeHeader = prop.type === 'BUY' ? '🟢 #خرید_ارز' : '🔴 #فروش_ارز';
-        const userMention = prop.creator.username
-          ? `@${prop.creator.username}`
-          : `<a href="tg://user?id=${prop.creator.telegramId}">${prop.creator.firstName}</a>`;
+        const userMention = mentionUser(prop.creator);
 
         const groupMsgText =
           `📢 <b>پیشنهاد جدید معاملاتی</b>\n\n` +
           `<b>${typeHeader}</b>\n\n` +
           `🔹 <b>کد حواله:</b> <code>${prop.code ?? '---'}</code>\n` +
-          `🔹 <b>ارز:</b> <code>${prop.currency}</code>\n` +
-          `🔹 <b>نوع تسویه:</b> <code>${prop.paymentMethod ?? '---'}</code>\n` +
+          `🔹 <b>ارز:</b> <code>${escapeHtml(prop.currency)}</code>\n` +
+          `🔹 <b>نوع تسویه:</b> <code>${escapeHtml(prop.paymentMethod ?? '---')}</code>\n` +
           `🔹 <b>مقدار کل:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
           `🔹 <b>مقدار باقیمانده:</b> <code>${prop.amount.toLocaleString('fa-IR')}</code>\n` +
           `🔹 <b>قیمت واحد:</b> <code>${prop.price.toLocaleString('fa-IR')}</code> تومان\n` +
           `🔹 <b>مبلغ کل:</b> <code>${(prop.amount * prop.price).toLocaleString('fa-IR')}</code> تومان\n` +
           `👤 <b>توسط:</b> ${userMention}\n` +
-          `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(prop.createdAt, getTimezoneByCountry(prop.creator.country))}</code>\n\n` +
+          `📅 <b>تاریخ ثبت:</b> <code>${escapeHtml(formatToShamsi(prop.createdAt, getTimezoneByCountry(prop.creator.country)))}</code>\n\n` +
           `ℹ️ برای ارسال پاسخ، قبول پیشنهاد یا گفتگو با ثبت‌کننده، روی دکمه زیر کلیک کنید:`;
 
         const deepLinkUrl = `https://t.me/${config.BOT_USERNAME}?start=deal_${prop.id}`;
@@ -1228,7 +1261,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         await ctx.telegram
           .sendMessage(
             updatedProp.creator.telegramId,
-            `🎉 **پیشنهاد معاملاتی شما (کد حواله ${updatedProp.code}) با موفقیت توسط مدیریت تایید و در گروه منتشر شد.**`
+            `🎉 <b>پیشنهاد معاملاتی شما (کد حواله ${updatedProp.code}) با موفقیت توسط مدیریت تایید و در گروه منتشر شد.</b>`
           )
           .catch((err) => console.error('Failed to notify creator of approval:', err));
 
@@ -1245,13 +1278,13 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           `🔔 <b>پیشنهاد جدید معاملاتی ثبت شد:</b>\n\n` +
           `<b>${typeHeader}</b>\n\n` +
           `🔹 <b>کد حواله:</b> <code>${updatedProp.code}</code>\n` +
-          `🔹 <b>ارز:</b> <code>${updatedProp.currency}</code>\n` +
-          `🔹 <b>نوع تسویه:</b> <code>${updatedProp.paymentMethod}</code>\n` +
+          `🔹 <b>ارز:</b> <code>${escapeHtml(updatedProp.currency)}</code>\n` +
+          `🔹 <b>نوع تسویه:</b> <code>${escapeHtml(updatedProp.paymentMethod)}</code>\n` +
           `🔹 <b>مقدار:</b> <code>${updatedProp.amount.toLocaleString('fa-IR')}</code>\n` +
           `🔹 <b>قیمت واحد:</b> <code>${updatedProp.price.toLocaleString('fa-IR')}</code> تومان\n` +
           `🔹 <b>مبلغ کل:</b> <code>${(updatedProp.amount * updatedProp.price).toLocaleString('fa-IR')}</code> تومان\n` +
           `👤 <b>توسط:</b> ${userMention}\n` +
-          `📅 <b>تاریخ ثبت:</b> <code>${formatToShamsi(updatedProp.createdAt, getTimezoneByCountry(updatedProp.creator.country))}</code>\n\n` +
+          `📅 <b>تاریخ ثبت:</b> <code>${escapeHtml(formatToShamsi(updatedProp.createdAt, getTimezoneByCountry(updatedProp.creator.country)))}</code>\n\n` +
           `⚙️ <b>دکمه‌های مدیریت پیشنهاد:</b>`;
 
         await ctx.telegram
@@ -1307,7 +1340,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         await ctx.telegram
           .sendMessage(
             updatedProp.creator.telegramId,
-            `❌ **پیشنهاد معاملاتی شما (کد حواله ${updatedProp.code}) توسط مدیریت رد شد.**`
+            `❌ <b>پیشنهاد معاملاتی شما (کد حواله ${updatedProp.code}) توسط مدیریت رد شد.</b>`
           )
           .catch((err) => console.error('Failed to notify creator of rejection:', err));
 
@@ -1352,13 +1385,13 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         await ctx.telegram
           .sendMessage(
             targetUser.telegramId,
-            `🎉 **درخواست افزایش سقف آگهی روزانه شما تایید شد!**\n\n` +
+            `🎉 <b>درخواست افزایش سقف آگهی روزانه شما تایید شد!</b>\n\n` +
               `سقف آگهی‌های مجاز روزانه شما به <code>10</code> عدد افزایش یافت.`,
             { parse_mode: 'HTML' }
           )
           .catch((err) => console.error('Failed to notify user about limit increase approval:', err));
 
-        const confirmationText = `✅ درخواست افزایش سقف روزانه کاربر <b>${updatedUser.fullName || updatedUser.firstName}</b> با موفقیت تایید شد و به ۱۰ عدد ارتقا یافت.`;
+        const confirmationText = `✅ درخواست افزایش سقف روزانه کاربر <b>${escapeHtml(updatedUser.fullName || updatedUser.firstName)}</b> با موفقیت تایید شد و به ۱۰ عدد ارتقا یافت.`;
         await ctx.editMessageText(confirmationText, { parse_mode: 'HTML' }).catch(() => {});
       } catch (err) {
         console.error('Error in ADMIN_APPROVE_LIMIT:', err);
@@ -1390,11 +1423,11 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         await ctx.telegram
           .sendMessage(
             targetUser.telegramId,
-            `❌ **درخواست افزایش سقف آگهی روزانه شما مورد موافقت مدیریت قرار نگرفت.**`
+            `❌ <b>درخواست افزایش سقف آگهی روزانه شما مورد موافقت مدیریت قرار نگرفت.</b>`
           )
           .catch((err) => console.error('Failed to notify user about limit increase rejection:', err));
 
-        const confirmationText = `❌ درخواست افزایش سقف روزانه کاربر <b>${targetUser.fullName || targetUser.firstName}</b> رد شد.`;
+        const confirmationText = `❌ درخواست افزایش سقف روزانه کاربر <b>${escapeHtml(targetUser.fullName || targetUser.firstName)}</b> رد شد.`;
         await ctx.editMessageText(confirmationText, { parse_mode: 'HTML' }).catch(() => {});
       } catch (err) {
         console.error('Error in ADMIN_REJECT_LIMIT:', err);
@@ -1437,35 +1470,37 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         const agreedPrice = acceptedOffer ? acceptedOffer.price : deal.proposal.price;
         const totalValue = deal.amount * agreedPrice;
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'WAITING_BUYER_PAYMENT' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_APPROVE' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const isProposalBuy = deal.proposal.type === 'BUY';
         const buyer = isProposalBuy ? deal.proposal.creator : deal.acceptor;
         const seller = isProposalBuy ? deal.acceptor : deal.proposal.creator;
 
         const buyerMsg =
-          `🎉 **معامله شما با موفقیت توسط مدیریت تایید شد.**\n\n` +
-          `🔹 **مقدار:** ${deal.amount.toLocaleString('fa-IR')} ${deal.proposal.currency}\n` +
-          `🔹 **قیمت واحد:** ${agreedPrice.toLocaleString('fa-IR')} تومان\n` +
-          `🔹 **مبلغ کل قابل واریز:** ${totalValue.toLocaleString('fa-IR')} تومان\n\n` +
+          `🎉 <b>معامله شما با موفقیت توسط مدیریت تایید شد.</b>\n\n` +
+          `🔹 <b>مقدار:</b> ${deal.amount.toLocaleString('fa-IR')} ${escapeHtml(deal.proposal.currency)}\n` +
+          `🔹 <b>قیمت واحد:</b> ${agreedPrice.toLocaleString('fa-IR')} تومان\n` +
+          `🔹 <b>مبلغ کل قابل واریز:</b> ${totalValue.toLocaleString('fa-IR')} تومان\n\n` +
           `لطفاً مبلغ کل فوق را واریز نموده و فیش واریزی خود را از طریق دکمه زیر ارسال فرمایید:`;
 
         const buyerKb = await getMainKeyboard(buyer.telegramId);
         await ctx.telegram.sendMessage(buyer.telegramId, buyerMsg, {
-          parse_mode: 'Markdown',
+          parse_mode: 'HTML',
           ...buyerKb
         });
 
         const sellerMsg =
-          `ℹ️ **معامله شما توسط مدیریت تایید شد.**\n\n` +
+          `ℹ️ <b>معامله شما توسط مدیریت تایید شد.</b>\n\n` +
           `خریدار در حال واریز وجه می‌باشد. به محض واریز و تایید فیش توسط ادمین، اطلاع‌رسانی خواهد شد.`;
 
         const sellerKb = await getMainKeyboard(seller.telegramId);
         await ctx.telegram.sendMessage(seller.telegramId, sellerMsg, {
-          parse_mode: 'Markdown',
+          parse_mode: 'HTML',
           ...sellerKb
         });
 
@@ -1510,10 +1545,30 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         });
         const agreedPrice = acceptedOffer ? acceptedOffer.price : deal.proposal.price;
 
+        // Rejecting also returns the reserved amount to the ad, so this stays one
+        // compound transaction rather than a call to transitionDeal. The lifecycle is
+        // still the authority on whether the rejection is legal at all.
+        const verdict = applyDealEvent(deal.status, { type: 'ADMIN_REJECT' });
+        if (!verdict.ok) {
+          await ctx.reply(`⚠️ در وضعیت فعلی (${deal.status}) امکان رد این معامله نیست.`);
+          return;
+        }
+
         await prisma.$transaction(async (tx) => {
-          await tx.deal.update({
-            where: { id: dealId },
-            data: { status: 'REJECTED' }
+          const claimed = await tx.deal.updateMany({
+            where: { id: dealId, status: verdict.from },
+            data: { status: verdict.to, deadlineAt: null, remindedAt: null }
+          });
+          if (claimed.count !== 1) throw new Error('DEAL_RACED');
+
+          await recordAudit(tx, {
+            actor: from.id.toString(),
+            action: 'deal.admin_reject',
+            subjectType: 'Deal',
+            subjectId: dealId,
+            before: { status: verdict.from },
+            after: { status: verdict.to },
+            note: 'amount returned to the ad'
           });
 
           const freshProposal = await tx.proposal.findUnique({
@@ -1550,7 +1605,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         });
 
         const creatorMsg =
-          `❌ **معامله مربوط به آگهی #${deal.proposalId} توسط مدیریت تایید نهایی نشد و رد گردید.**\n\n` +
+          `❌ <b>معامله مربوط به آگهی #${deal.proposalId} توسط مدیریت تایید نهایی نشد و رد گردید.</b>\n\n` +
           `🔄 آگهی شما مجدداً در گروه فعال و دکمه قبول پیشنهاد بازگردانده شد.`;
 
         const creatorKb = await getMainKeyboard(deal.proposal.creator.telegramId);
@@ -1559,8 +1614,8 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           .catch((err) => console.error('Failed to notify creator of rejection:', err));
 
         const acceptorMsg =
-          `❌ **معامله شما توسط مدیریت تایید نهایی نشد و لغو گردید.**\n\n` +
-          `🔹 **جزئیات:** مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${deal.proposal.currency} با قیمت ${agreedPrice.toLocaleString('fa-IR')} تومان`;
+          `❌ <b>معامله شما توسط مدیریت تایید نهایی نشد و لغو گردید.</b>\n\n` +
+          `🔹 <b>جزئیات:</b> مقدار <code>${deal.amount.toLocaleString('fa-IR')}</code> ${escapeHtml(deal.proposal.currency)} با قیمت ${agreedPrice.toLocaleString('fa-IR')} تومان`;
 
         const acceptorKb = await getMainKeyboard(deal.acceptor.telegramId);
         await ctx.telegram
@@ -1572,9 +1627,13 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         await ctx.editMessageText(`❌ معامله #${dealId} رد شد.`).catch(() => {});
         await updateGroupProposalMessage(ctx.telegram, deal.proposalId);
-      } catch (err) {
-        console.error('Error in ADMIN_DEAL_REJECT callback:', err);
-        await ctx.reply('❌ خطایی در رد معامله رخ داد.');
+      } catch (err: any) {
+        if (err?.message === 'DEAL_RACED') {
+          await ctx.reply('⚠️ این معامله هم‌زمان توسط درخواست دیگری تعیین تکلیف شد.');
+        } else {
+          console.error('Error in ADMIN_DEAL_REJECT callback:', err);
+          await ctx.reply('❌ خطایی در رد معامله رخ داد.');
+        }
       }
       return;
     }
@@ -1598,10 +1657,12 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           return;
         }
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'WAITING_SELLER_PAYMENT' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_CONFIRM_BUYER_RECEIPT' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const isProposalBuy = deal.proposal.type === 'BUY';
         const seller = isProposalBuy ? deal.acceptor : deal.proposal.creator;
@@ -1609,11 +1670,11 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         const sellerKb = await getMainKeyboard(seller.telegramId);
         await ctx.telegram.sendMessage(
           seller.telegramId,
-          `✅ **فیش واریزی خریدار توسط مدیریت تایید شد.**\n\n` +
-            `🔹 **مقدار:** ${deal.amount.toLocaleString('fa-IR')} ${deal.proposal.currency}\n\n` +
-            `لطفاً اقدام به واریز ارز نموده و فیش را از طریق دکمه **«📤 ارسال فیش واریزی»** ارسال فرمایید.`,
+          `✅ <b>فیش واریزی خریدار توسط مدیریت تایید شد.</b>\n\n` +
+            `🔹 <b>مقدار:</b> ${deal.amount.toLocaleString('fa-IR')} ${escapeHtml(deal.proposal.currency)}\n\n` +
+            `لطفاً اقدام به واریز ارز نموده و فیش را از طریق دکمه <b>«📤 ارسال فیش واریزی»</b> ارسال فرمایید.`,
           {
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
             ...sellerKb
           }
         );
@@ -1651,10 +1712,12 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           return;
         }
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'WAITING_BUYER_PAYMENT' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_REJECT_BUYER_RECEIPT' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const isProposalBuy = deal.proposal.type === 'BUY';
         const buyer = isProposalBuy ? deal.proposal.creator : deal.acceptor;
@@ -1662,10 +1725,10 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         const buyerKb = await getMainKeyboard(buyer.telegramId);
         await ctx.telegram.sendMessage(
           buyer.telegramId,
-          `❌ **فیش واریزی شما توسط مدیریت رد شد.**\n\n` +
-            `لطفاً مجدداً بررسی نموده و فیش معتبر را از طریق دکمه **«📤 ارسال فیش واریزی»** ارسال نمایید.`,
+          `❌ <b>فیش واریزی شما توسط مدیریت رد شد.</b>\n\n` +
+            `لطفاً مجدداً بررسی نموده و فیش معتبر را از طریق دکمه <b>«📤 ارسال فیش واریزی»</b> ارسال نمایید.`,
           {
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
             ...buyerKb
           }
         );
@@ -1703,10 +1766,12 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           return;
         }
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'COMPLETED' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_CONFIRM_SELLER_RECEIPT' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const freshProp = await prisma.proposal.findUnique({
           where: { id: deal.proposalId }
@@ -1726,13 +1791,13 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         await ctx.telegram.sendMessage(
           deal.proposal.creator.telegramId,
-          `🤝 **معامله #${dealId} با موفقیت به پایان رسید.**\nبا تشکر از اعتماد شما به DanmarkFinance.`,
+          `🤝 <b>معامله #${dealId} با موفقیت به پایان رسید.</b>\nبا تشکر از اعتماد شما به DanmarkFinance.`,
           { ...buyerKb }
         );
 
         await ctx.telegram.sendMessage(
           deal.acceptor.telegramId,
-          `🤝 **معامله #${dealId} با موفقیت به پایان رسید.**\nبا تشکر از اعتماد شما به DanmarkFinance.`,
+          `🤝 <b>معامله #${dealId} با موفقیت به پایان رسید.</b>\nبا تشکر از اعتماد شما به DanmarkFinance.`,
           { ...sellerKb }
         );
 
@@ -1747,7 +1812,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         if (freshProp && freshProp.status === 'COMPLETED' && freshProp.groupMessageId) {
           await ctx.telegram.sendMessage(
             config.ADMIN_CHAT_ID,
-            `📋 **آگهی شماره #${freshProp.code ?? freshProp.id} به طور کامل معامله شد.**\n` +
+            `📋 <b>آگهی شماره #${freshProp.code ?? freshProp.id} به طور کامل معامله شد.</b>\n` +
               `آیا مایل به حذف پیام این آگهی از گروه هستید؟`,
             {
               ...Markup.inlineKeyboard([
@@ -1785,10 +1850,12 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           return;
         }
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'WAITING_SELLER_PAYMENT' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_REJECT_SELLER_RECEIPT' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const isProposalBuy = deal.proposal.type === 'BUY';
         const seller = isProposalBuy ? deal.acceptor : deal.proposal.creator;
@@ -1796,8 +1863,8 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         const sellerKb = await getMainKeyboard(seller.telegramId);
         await ctx.telegram.sendMessage(
           seller.telegramId,
-          `❌ **فیش انتقال کرون شما توسط مدیریت رد شد.**\n\n` +
-            `لطفاً مجدداً بررسی نموده و فیش معتبر را از طریق دکمه **«📤 ارسال فیش واریزی»** ارسال نمایید.`,
+          `❌ <b>فیش انتقال کرون شما توسط مدیریت رد شد.</b>\n\n` +
+            `لطفاً مجدداً بررسی نموده و فیش معتبر را از طریق دکمه <b>«📤 ارسال فیش واریزی»</b> ارسال نمایید.`,
           {
             parse_mode: 'HTML',
             ...sellerKb

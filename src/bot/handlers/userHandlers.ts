@@ -9,6 +9,11 @@ import { VERIFY_USER_SCENE_ID } from '../scenes/verifyUser';
 import { REQUEST_LIMIT_INCREASE_SCENE_ID } from '../scenes/requestLimitIncrease';
 import { mainKeyboard, verifyStartKeyboard, pendingVerificationKeyboard, getMainKeyboard } from '../utils/keyboards';
 import { formatToShamsi } from '../utils/groupMessage';
+import { escapeHtml } from '../utils/html';
+import { closeAccount } from '../../data/accountClosure';
+import { notifyChatId } from '../../data/admins';
+import { consume } from '../../data/rateLimit';
+import { t } from '../../i18n';
 
 function extractLivePrice(html: string, marketRow: string): number | null {
   const regex = new RegExp(`<tr[^>]*data-market-row=["']${marketRow}["'][^>]*>`, 'i');
@@ -59,17 +64,17 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
       if (user.verificationStatus === 'APPROVED') {
         const dynamicKb = await getMainKeyboard(from.id.toString());
         await ctx.reply(
-          `سلام ${user.firstName} عزیز! 👋\nبه ربات DanmarkFinance خوش آمدید.\n\nاز منوی زیر استفاده کنید:`,
+          `سلام ${escapeHtml(user.firstName)} عزیز! 👋\nبه ربات DanmarkFinance خوش آمدید.\n\nاز منوی زیر استفاده کنید:`,
           dynamicKb
         );
       } else if (user.verificationStatus === 'PENDING') {
         await ctx.reply(
-          `سلام ${user.firstName} عزیز! 👋\nمدارک احراز هویت شما در حال بررسی توسط مدیریت است.`,
+          `سلام ${escapeHtml(user.firstName)} عزیز! 👋\nمدارک احراز هویت شما در حال بررسی توسط مدیریت است.`,
           pendingVerificationKeyboard
         );
       } else {
         await ctx.reply(
-          `سلام ${user.firstName} عزیز! 👋\nبه ربات ثبت سفارش و احراز هویت DanmarkFinance خوش آمدید.\n\n` +
+          `سلام ${escapeHtml(user.firstName)} عزیز! 👋\nبه ربات ثبت سفارش و احراز هویت DanmarkFinance خوش آمدید.\n\n` +
             `برای استفاده از امکانات کامل ربات، لطفاً ابتدا مراحل احراز هویت را انجام دهید.`,
           verifyStartKeyboard
         );
@@ -83,11 +88,14 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
   // Help command
   bot.help(checkVerified, async (ctx) => {
     await ctx.reply(
-      `📖 **راهنمای ربات:**\n\n` +
-        `۱. برای ثبت پیشنهاد جدید دکمه **📝 ثبت پیشنهاد جدید** را بزنید و مراحل را طی کنید.\n` +
-        `۲. پیشنهاد شما به گروه ارسال خواهد شد و کاربران دیگر می‌توانند آن را قبول کنند.\n` +
-        `۳. برای دیدن پیشنهادهایی که ثبت کرده‌اید و لغو آنها، از دکمه **📋 پیشنهادهای فعال من** استفاده کنید.\n` +
-        `۴. در صورت پذیرفته شدن پیشنهاد شما توسط کاربری در گروه، جزئیات معامله جهت انجام مراحل بعدی به ادمین ارسال شده و آیدی ادمین برای شما فرستاده می‌شود.`,
+      `📖 <b>راهنمای ربات:</b>\n\n` +
+        `۱. <b>💵 نرخ لحظه‌ای ارز</b> — مشاهده نرخ روز دلار، یورو، کرون و تتر.\n` +
+        `۲. <b>📋 مدیریت آگهی‌ها</b> — ثبت آگهی جدید خرید/فروش و ویرایش یا حذف آگهی‌های خودتان.\n` +
+        `۳. <b>🤝 مدیریت پیشنهادات</b> — بررسی پیشنهادهای قیمتی که برای آگهی‌های شما ثبت شده و پاسخ به آن‌ها.\n` +
+        `۴. <b>📊 لیست مبادلات فعال</b> — مشاهده تمام حواله‌های فعال و آماده مبادله.\n` +
+        `۵. <b>⚙️ تنظیمات کاربری</b> — مشاهده وضعیت احراز هویت، سقف آگهی روزانه و مدیریت حساب.\n` +
+        `۶. <b>📜 شرایط تبادل ارز</b> — قوانین و شرایط انجام معامله در این ربات.\n\n` +
+        `پس از توافق طرفین، معامله برای تایید نهایی به مدیریت ارسال می‌شود و دکمه <b>📤 ارسال فیش واریزی</b> برای شما نمایش داده خواهد شد.`,
       mainKeyboard
     );
   });
@@ -167,7 +175,7 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
 
       const dynamicKb = await getMainKeyboard(from.id.toString());
       await ctx.reply(
-        '🎉 **حساب کاربری شما با موفقیت مجدداً فعال گردید!**\n\nهم‌اکنون می‌توانید از تمامی امکانات ربات استفاده کنید.',
+        '🎉 <b>حساب کاربری شما با موفقیت مجدداً فعال گردید!</b>\n\nهم‌اکنون می‌توانید از تمامی امکانات ربات استفاده کنید.',
         dynamicKb
       );
     } catch (err) {
@@ -201,10 +209,10 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
 
       const infoText =
         `👤 <b>مشخصات کاربری شما:</b>\n\n` +
-        `🔹 <b>نام و نام خانوادگی:</b> ${dbUser.firstName} ${dbUser.lastName || ''}\n` +
-        `🔹 <b>نام کاربری تلگرام:</b> ${dbUser.username ? `@${dbUser.username}` : 'ندارد'}\n` +
-        `🔹 <b>تلفن همراه:</b> ${dbUser.phoneNumber ?? 'ثبت نشده'}\n` +
-        `🔹 <b>کشور محل سکونت:</b> ${dbUser.country ?? 'ثبت نشده'}\n` +
+        `🔹 <b>نام و نام خانوادگی:</b> ${escapeHtml(dbUser.firstName)} ${escapeHtml(dbUser.lastName || '')}\n` +
+        `🔹 <b>نام کاربری تلگرام:</b> ${escapeHtml(dbUser.username ? `@${dbUser.username}` : 'ندارد')}\n` +
+        `🔹 <b>تلفن همراه:</b> ${escapeHtml(dbUser.phoneNumber ?? 'ثبت نشده')}\n` +
+        `🔹 <b>کشور محل سکونت:</b> ${escapeHtml(dbUser.country ?? 'ثبت نشده')}\n` +
         `🔹 <b>وضعیت احراز هویت:</b> ${verificationStatusText}\n` +
         `🔹 <b>محدودیت پیشنهاد روزانه:</b> ${dbUser.dailyProposalLimit} عدد\n` +
         `🔹 <b>تاریخ ثبت‌نام:</b> <code>${formatToShamsi(dbUser.createdAt)}</code>`;
@@ -225,6 +233,12 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
   });
 
   bot.hears('💵 نرخ لحظه‌ای ارز', checkVerified, async (ctx) => {
+    // This makes an outbound request to a third party on every press.
+    const limit = await consume('liveRates', ctx.from!.id);
+    if (!limit.allowed) {
+      await ctx.reply(t('limit.hit', { seconds: limit.retryAfterSeconds }));
+      return;
+    }
     try {
       const response = await axios.get('https://www.tgju.org/', {
         headers: {
@@ -257,14 +271,14 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
 
   bot.hears('📜 شرایط تبادل ارز', checkVerified, async (ctx) => {
     const rulesText =
-      `📜 **شرایط و قوانین تبادل ارز در ربات DanmarkFinance:**\n\n` +
-      `۱. **احراز هویت الزامی:** تمامی کاربران جهت شرکت در مبادلات باید فرآیند احراز هویت را به صورت کامل طی کرده و مدارک آنها توسط مدیریت تایید شود.\n\n` +
-      `۲. **نظارت مدیریت:** تمامی معاملات و نقل و انتقال‌های مالی تحت نظارت مستقیم ادمین ربات انجام می‌گیرد تا امنیت طرفین تضمین گردد.\n\n` +
-      `۳. **تعهد قیمت و مقدار:** پس از پذیرش یک پیشنهاد، تغییر در قیمت یا مقدار توافق شده بدون هماهنگی با مدیریت امکان‌پذیر نمی‌باشد.\n\n` +
-      `۴. **مدت زمان تسویه:** خریدار و فروشنده موظف هستند در بازه زمانی تعیین شده توسط ادمین اقدام به واریز و ارسال فیش نمایند.\n\n` +
-      `۵. **مسئولیت اطلاعات:** مسئولیت صحت شماره حساب‌ها و اطلاعات ارسالی بر عهده کاربر می‌باشد.`;
+      `📜 <b>شرایط و قوانین تبادل ارز در ربات DanmarkFinance:</b>\n\n` +
+      `۱. <b>احراز هویت الزامی:</b> تمامی کاربران جهت شرکت در مبادلات باید فرآیند احراز هویت را به صورت کامل طی کرده و مدارک آنها توسط مدیریت تایید شود.\n\n` +
+      `۲. <b>نظارت مدیریت:</b> تمامی معاملات و نقل و انتقال‌های مالی تحت نظارت مستقیم ادمین ربات انجام می‌گیرد تا امنیت طرفین تضمین گردد.\n\n` +
+      `۳. <b>تعهد قیمت و مقدار:</b> پس از پذیرش یک پیشنهاد، تغییر در قیمت یا مقدار توافق شده بدون هماهنگی با مدیریت امکان‌پذیر نمی‌باشد.\n\n` +
+      `۴. <b>مدت زمان تسویه:</b> خریدار و فروشنده موظف هستند در بازه زمانی تعیین شده توسط ادمین اقدام به واریز و ارسال فیش نمایند.\n\n` +
+      `۵. <b>مسئولیت اطلاعات:</b> مسئولیت صحت شماره حساب‌ها و اطلاعات ارسالی بر عهده کاربر می‌باشد.`;
 
-    await ctx.reply(rulesText, { parse_mode: 'Markdown' });
+    await ctx.reply(rulesText, { parse_mode: 'HTML' });
   });
 
   // User Settings Callbacks
@@ -289,11 +303,11 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
     if (data === 'USER_DEACTIVATE_ACCOUNT') {
       await ctx.answerCbQuery();
       await ctx.editMessageText(
-        '⚠️ **غیرفعال‌سازی موقت حساب کاربری**\n\n' +
+        '⚠️ <b>غیرفعال‌سازی موقت حساب کاربری</b>\n\n' +
           'با غیرفعال‌سازی حساب، امکان ثبت آگهی یا قبول پیشنهادات تا زمان فعال‌سازی مجدد سلب خواهد شد.\n\n' +
           'آیا مطمئن هستید؟',
         {
-          parse_mode: 'Markdown',
+          parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
             [Markup.button.callback('✅ بله، غیرفعال کن', 'CONFIRM_DEACTIVATE_ACCOUNT')],
             [Markup.button.callback('❌ انصراف', 'CANCEL_DEACTIVATE_ACCOUNT')]
@@ -320,7 +334,7 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
 
         await ctx.deleteMessage().catch(() => {});
         await ctx.reply(
-          '⚠️ **حساب کاربری شما موقتاً غیرفعال شد.**\n\nهر زمان مایل بودید می‌توانید با زدن دکمه «🔄 فعال‌سازی حساب کاربری» آن را فعال کنید.',
+          '⚠️ <b>حساب کاربری شما موقتاً غیرفعال شد.</b>\n\nهر زمان مایل بودید می‌توانید با زدن دکمه «🔄 فعال‌سازی حساب کاربری» آن را فعال کنید.',
           Markup.keyboard([['🔄 فعال‌سازی حساب کاربری']]).resize()
         );
       } catch (err) {
@@ -333,11 +347,9 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
     if (data === 'USER_DELETE_ACCOUNT') {
       await ctx.answerCbQuery();
       await ctx.editMessageText(
-        '🚨 **حذف کامل حساب کاربری**\n\n' +
-          'توجه: با این اقدام تمام سوابق و اطلاعات شما از دیتابیس پاک خواهد شد و جهت استفاده مجدد باید از نو احراز هویت کنید.\n\n' +
-          'آیا از حذف کامل حساب خود مطمئن هستید؟',
+        `${t('close.confirm.title')}\n\n${t('close.confirm.body')}`,
         {
-          parse_mode: 'Markdown',
+          parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
             [Markup.button.callback('🗑 بله، حسابم را پاک کن', 'CONFIRM_DELETE_MY_ACCOUNT')],
             [Markup.button.callback('❌ انصراف', 'CANCEL_DELETE_MY_ACCOUNT')]
@@ -357,18 +369,40 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
     if (data === 'CONFIRM_DELETE_MY_ACCOUNT') {
       await ctx.answerCbQuery();
       try {
-        await prisma.user.delete({
-          where: { telegramId: from.id.toString() }
-        });
+        const telegramId = from.id.toString();
+        const result = await closeAccount(telegramId, telegramId);
 
         await ctx.deleteMessage().catch(() => {});
-        await ctx.reply(
-          '🗑 **حساب کاربری و تمام اطلاعات شما با موفقیت از سیستم پاک شد.**',
-          verifyStartKeyboard
-        );
+
+        if (result.ok) {
+          // The row is scrubbed; these are the copies sitting in the admin chat.
+          for (const messageId of result.adminCopyMessageIds) {
+            await ctx.telegram.deleteMessage(notifyChatId(), messageId).catch(err => {
+              console.error(`Could not delete admin document copy ${messageId}:`, err?.description ?? err);
+            });
+          }
+          await ctx.reply(t('close.done'), verifyStartKeyboard);
+          return;
+        }
+
+        if (result.reason === 'OPEN_DEALS') {
+          // Hard-deleting here used to cascade through this user's ads into the
+          // counterparty's deals, so someone who had already been paid could erase
+          // the buyer's record of it. Unsettled trades now block closure outright.
+          await ctx.reply(
+            t('close.blocked', {
+              count: result.dealIds.length,
+              ids: result.dealIds.map(id => `#${id}`).join('، ')
+            }),
+            mainKeyboard
+          );
+          return;
+        }
+
+        await ctx.reply(t('close.notfound'), verifyStartKeyboard);
       } catch (err) {
-        console.error('Error deleting account:', err);
-        await ctx.reply('❌ خطا در حذف حساب کاربری.');
+        console.error('Error closing account:', err);
+        await ctx.reply(t('err.unexpected'));
       }
       return;
     }
@@ -421,7 +455,7 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
           await ctx.telegram
             .sendMessage(
               userIdStr,
-              `🎉 **عضویت شما در گروه معاملاتی تایید شد!**\n\nهم‌اکنون تمامی امکانات ربات جهت ثبت پیشنهاد و انجام مبادلات برای شما فعال گردید.`,
+              `🎉 <b>عضویت شما در گروه معاملاتی تایید شد!</b>\n\nهم‌اکنون تمامی امکانات ربات جهت ثبت پیشنهاد و انجام مبادلات برای شما فعال گردید.`,
               { ...dynamicKb }
             )
             .catch((err) => console.error('Failed to notify user upon joining group:', err));

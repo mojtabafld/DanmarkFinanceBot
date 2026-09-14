@@ -2,57 +2,34 @@ import { Context, MiddlewareFn, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard, getMainKeyboard, pendingVerificationKeyboard } from '../utils/keyboards';
+import { canOperate } from '../../data/admins';
+import { escapeHtml } from '../utils/html';
 
 export const dynamicKeyboardMiddleware: MiddlewareFn<Context> = async (ctx, next) => {
   const telegramId = ctx.from?.id.toString() || '';
 
-  const originalReply = ctx.reply.bind(ctx);
-  ctx.reply = async (text: string, extra: any = {}) => {
-    if (extra && typeof extra === 'object') {
-      if (
-        extra === mainKeyboard ||
-        (extra.reply_markup &&
-          (extra.reply_markup === mainKeyboard.reply_markup ||
-            JSON.stringify(extra.reply_markup) === JSON.stringify(mainKeyboard.reply_markup)))
-      ) {
-        const dynamicKb = await getMainKeyboard(telegramId);
-        extra.reply_markup = dynamicKb.reply_markup;
-      }
-    }
-    return originalReply(text, extra);
-  };
+  const usesStaticMainKeyboard = (extra: any) =>
+    extra === mainKeyboard ||
+    (extra?.reply_markup &&
+      (extra.reply_markup === mainKeyboard.reply_markup ||
+        JSON.stringify(extra.reply_markup) === JSON.stringify(mainKeyboard.reply_markup)));
 
-  const originalReplyWithHTML = ctx.replyWithHTML.bind(ctx);
-  ctx.replyWithHTML = async (text: string, extra: any = {}) => {
-    if (extra && typeof extra === 'object') {
-      if (
-        extra === mainKeyboard ||
-        (extra.reply_markup &&
-          (extra.reply_markup === mainKeyboard.reply_markup ||
-            JSON.stringify(extra.reply_markup) === JSON.stringify(mainKeyboard.reply_markup)))
-      ) {
+  /**
+   * Swaps the static main keyboard for the one that matches the user's current
+   * state, so a reply written against `mainKeyboard` still shows the extra
+   * payment buttons when that user has a deal awaiting payment.
+   */
+  const withDynamicKeyboard = <R>(send: (text: string, extra: any) => Promise<R>) =>
+    async (text: string, extra: any = {}): Promise<R> => {
+      if (extra && typeof extra === 'object' && usesStaticMainKeyboard(extra)) {
         const dynamicKb = await getMainKeyboard(telegramId);
-        extra.reply_markup = dynamicKb.reply_markup;
+        extra = { ...extra, reply_markup: dynamicKb.reply_markup };
       }
-    }
-    return originalReplyWithHTML(text, extra);
-  };
+      return send(text, extra);
+    };
 
-  const originalReplyWithMarkdown = ctx.replyWithMarkdown.bind(ctx);
-  ctx.replyWithMarkdown = async (text: string, extra: any = {}) => {
-    if (extra && typeof extra === 'object') {
-      if (
-        extra === mainKeyboard ||
-        (extra.reply_markup &&
-          (extra.reply_markup === mainKeyboard.reply_markup ||
-            JSON.stringify(extra.reply_markup) === JSON.stringify(mainKeyboard.reply_markup)))
-      ) {
-        const dynamicKb = await getMainKeyboard(telegramId);
-        extra.reply_markup = dynamicKb.reply_markup;
-      }
-    }
-    return originalReplyWithMarkdown(text, extra);
-  };
+  ctx.reply = withDynamicKeyboard(ctx.reply.bind(ctx)) as typeof ctx.reply;
+  ctx.replyWithHTML = withDynamicKeyboard(ctx.replyWithHTML.bind(ctx)) as typeof ctx.replyWithHTML;
 
   return next();
 };
@@ -113,7 +90,7 @@ export const checkVerified: MiddlewareFn<Context> = async (ctx, next) => {
     if (user?.verificationStatus === 'REJECTED') {
       await ctx.reply(
         `❌ متاسفانه احراز هویت شما تایید نشده است.\n` +
-          (user.rejectReason ? `💬 علت: ${user.rejectReason}\n\n` : '\n') +
+          (user.rejectReason ? `💬 علت: ${escapeHtml(user.rejectReason)}\n\n` : '\n') +
           `جهت شروع مجدد، دکمه زیر را کلیک کنید:`,
         Markup.keyboard([['🔐 شروع احراز هویت']]).resize()
       );
@@ -132,7 +109,7 @@ export const checkVerified: MiddlewareFn<Context> = async (ctx, next) => {
 
 export const requireAdmin: MiddlewareFn<Context> = async (ctx, next) => {
   const from = ctx.from;
-  if (!from || from.id.toString() !== config.ADMIN_CHAT_ID.toString()) {
+  if (!from || !(await canOperate(from.id))) {
     await ctx.reply('⚠️ شما دسترسی به بخش مدیریت ندارید.');
     return;
   }

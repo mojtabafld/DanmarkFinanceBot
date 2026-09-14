@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: danmark_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/danmark_ci?schema=public
+      SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/danmark_ci_shadow?schema=public
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # `migrate diff` builds the schema in a throwaway database to compare against.
+      # The service container only creates the one named by POSTGRES_DB, so without
+      # this the drift check below dies with "database danmark_ci_shadow does not
+      # exist" rather than telling us anything about the schema.
+      - name: Create the shadow database the drift check needs
+        # Explicit flags rather than $DATABASE_URL: that carries Prisma's
+        # ?schema=public, which libpq rejects as an unknown URI parameter.
+        run: psql -h localhost -U postgres -d danmark_ci -c 'CREATE DATABASE danmark_ci_shadow;'
+        env:
+          PGPASSWORD: postgres
+
+      - name: Apply migrations to a clean database
+        run: npx prisma migrate deploy
+
+      # DATABASE_URL is set for the whole job, so the integration tests under
+      # tests/integration run here instead of skipping as they do locally.
+      - name: Test
+        run: npm test
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Fail if the schema has drifted from the migrations
+        run: |
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code

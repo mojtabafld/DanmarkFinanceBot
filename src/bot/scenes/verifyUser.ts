@@ -3,6 +3,8 @@ import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { verifyStartKeyboard, pendingVerificationKeyboard } from '../utils/keyboards';
 import { maskImage } from '../utils/imageMasking';
+import { escapeHtml, mentionUser } from '../utils/html';
+import { t } from '../../i18n';
 
 interface VerifyState {
   fullName?: string;
@@ -31,7 +33,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
     // Check if user has a username
     if (!ctx.from || !ctx.from.username) {
       await ctx.reply(
-        '⚠️ کاربر گرامی، جهت احراز هویت لازم است که اکانت تلگرام شما دارای **نام کاربری (Username)** باشد.\n\n' +
+        '⚠️ کاربر گرامی، جهت احراز هویت لازم است که اکانت تلگرام شما دارای <b>نام کاربری (Username)</b> باشد.\n\n' +
         'لطفاً ابتدا به تنظیمات تلگرام خود رفته، یک نام کاربری برای خود تعریف کنید و سپس مجدداً احراز هویت را شروع کنید.',
         verifyStartKeyboard
       );
@@ -163,9 +165,9 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       ctx.wizard.state.phoneNumber = message.contact.phone_number;
 
       await ctx.reply(
-        '📎 **ارسال مدرک اقامتی**\n\n' +
-        'لطفاً تصویری واضح از **کارت اقامت (Residence Permit)** یا **کارت زرد سلامت (Sundhedskort)** خود ارسال کنید (عکس یا فایل).\n\n' +
-        '🔒 **نکته امنیتی:** ربات به طور خودکار اطلاعات حساس تصویر (مانند کد ملی/شماره CPR و آدرس) را شناسایی و پوشش می‌دهد. پیش‌نمایش تصویر مخدوش‌شده قبل از ارسال نهایی برای ادمین به شما نشان داده خواهد شد تا آن را بررسی کنید. با این وجود، در صورت تمایل می‌توانید خودتان نیز با ابزارهای ادیت تلگرام روی این بخش‌ها را بپوشانید.',
+        '📎 <b>ارسال مدرک اقامتی</b>\n\n' +
+        'لطفاً تصویری واضح از <b>کارت اقامت (Residence Permit)</b> یا <b>کارت زرد سلامت (Sundhedskort)</b> خود ارسال کنید (عکس یا فایل).\n\n' +
+        '🔒 <b>نکته امنیتی:</b> ربات به طور خودکار اطلاعات حساس تصویر (مانند کد ملی/شماره CPR و آدرس) را شناسایی و پوشش می‌دهد. پیش‌نمایش تصویر مخدوش‌شده قبل از ارسال نهایی برای ادمین به شما نشان داده خواهد شد تا آن را بررسی کنید. با این وجود، در صورت تمایل می‌توانید خودتان نیز با ابزارهای ادیت تلگرام روی این بخش‌ها را بپوشانید.',
         Markup.keyboard([['انصراف']]).oneTime().resize()
       );
       return ctx.wizard.next();
@@ -217,15 +219,23 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
     let finalFileId = fileId;
     try {
       const fileLink = await ctx.telegram.getFileLink(fileId);
-      const maskedBuffer = await maskImage(fileLink.href);
-      
+      const { buffer, maskedCount } = await maskImage(fileLink.href);
+
+      // Say what actually happened. Detecting nothing is not the same as having
+      // redacted something, and the old caption claimed a redaction either way.
+      const caption =
+        maskedCount > 0
+          ? '🛡️ <b>پیش‌نمایش تصویر مخدوش‌شده</b>\n\n' +
+            `تعداد <b>${maskedCount}</b> بخش حساس (مانند شماره شناسایی/CPR، کد پستی یا آدرس) شناسایی و با کادرهای مشکی پوشانده شد.\n` +
+            'این دقیقاً همان تصویری است که ادمین مشاهده خواهد کرد.\n\n' +
+            '⚠️ اگر بخش حساسی همچنان قابل مشاهده است، لطفاً آن را پیش از ارسال خودتان بپوشانید و تصویر را دوباره بفرستید.'
+          : '⚠️ <b>هیچ اطلاعات حساسی به صورت خودکار شناسایی نشد</b>\n\n' +
+            'تصویر شما <b>بدون هیچ‌گونه مخدوش‌سازی</b> و دقیقاً به همین شکل برای ادمین ارسال خواهد شد.\n\n' +
+            'اگر مدرک شما شامل شماره شناسایی/CPR یا آدرس است، لطفاً آن بخش‌ها را خودتان بپوشانید و تصویر را دوباره بفرستید.';
+
       const previewPhoto = await ctx.replyWithPhoto(
-        { source: maskedBuffer },
-        {
-          caption: '🛡️ **پیش‌نمایش تصویر مخدوش‌شده**\n\n' +
-                   'بخش‌های حساس مدرک شما (مانند شماره شناسایی/CPR و آدرس) به صورت خودکار شناسایی و با کادرهای مشکی پوشانده شدند.\n' +
-                   'این دقیقاً همان تصویری است که ادمین مشاهده خواهد کرد.'
-        }
+        { source: buffer },
+        { caption: `${caption}\n\n${t('retention.notice', { hours: config.DOCUMENT_RETENTION_HOURS })}` }
       );
 
       if (previewPhoto && previewPhoto.photo) {
@@ -233,7 +243,11 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
       }
     } catch (err) {
       console.error('Error during automatic image masking in Step 6:', err);
-      await ctx.reply('⚠️ پردازش پیشرفته تصویر با خطا مواجه شد. مدرک شما بدون مخدوش‌سازی خودکار ثبت گردید.');
+      await ctx.reply(
+        '⚠️ <b>پردازش خودکار تصویر ناموفق بود</b>\n\n' +
+          'مدرک شما <b>بدون مخدوش‌سازی</b> و به شکل اصلی برای ادمین ارسال می‌شود.\n' +
+          'اگر با این موضوع موافق نیستید، دکمه «انصراف» را بزنید و پس از پوشاندن دستی بخش‌های حساس، دوباره تلاش کنید.'
+      );
     } finally {
       try {
         await ctx.telegram.deleteMessage(ctx.chat!.id, processingMsg.message_id);
@@ -243,14 +257,14 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
     ctx.wizard.state.documentFileId = finalFileId;
 
     const summaryText =
-      `📋 **پیش‌نویس اطلاعات احراز هویت شما:**\n\n` +
-      `🔹 **نام و نام خانوادگی:** ${ctx.wizard.state.fullName}\n` +
-      `🔹 **کشور محل اقامت:** ${ctx.wizard.state.country}\n` +
-      `🔹 **شماره تماس:** ${ctx.wizard.state.phoneNumber}\n` +
-      `🔹 **نام کاربری تلگرام:** @${ctx.from?.username}\n\n` +
+      `📋 <b>پیش‌نویس اطلاعات احراز هویت شما:</b>\n\n` +
+      `🔹 <b>نام و نام خانوادگی:</b> ${escapeHtml(ctx.wizard.state.fullName)}\n` +
+      `🔹 <b>کشور محل اقامت:</b> ${escapeHtml(ctx.wizard.state.country)}\n` +
+      `🔹 <b>شماره تماس:</b> ${escapeHtml(ctx.wizard.state.phoneNumber)}\n` +
+      `🔹 <b>نام کاربری تلگرام:</b> @${escapeHtml(ctx.from?.username)}\n\n` +
       `❓ آیا صحت این اطلاعات و مدرک پیش‌نمایش شده را تایید می‌کنید؟ در صورت تایید، درخواست برای مدیریت ارسال خواهد شد.`;
 
-    await ctx.replyWithMarkdown(
+    await ctx.replyWithHTML(
       summaryText,
       Markup.inlineKeyboard([
         [
@@ -292,6 +306,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
               country: ctx.wizard.state.country,
               phoneNumber: ctx.wizard.state.phoneNumber,
               documentFileId: fileIdToSave,
+              documentUploadedAt: new Date(),
             },
             create: {
               telegramId: from.id.toString(),
@@ -303,25 +318,24 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
               country: ctx.wizard.state.country,
               phoneNumber: ctx.wizard.state.phoneNumber,
               documentFileId: fileIdToSave,
+              documentUploadedAt: new Date(),
             },
           });
 
           // 2. Format details for Admin
-          const adminMention = from.username 
-            ? `@${from.username}` 
-            : `[${from.first_name}](tg://user?id=${from.id})`;
+          const adminMention = mentionUser({ username: from.username, firstName: from.first_name, telegramId: String(from.id) });
 
           const adminMsg =
-            `🔔 **درخواست احراز هویت جدید**\n\n` +
-            `👤 **کاربر:** ${adminMention}\n` +
-            `📝 **نام کامل:** ${dbUser.fullName}\n` +
-            `🌍 **کشور اقامت:** ${dbUser.country}\n` +
-            `📱 **شماره تلفن:** ${dbUser.phoneNumber}\n` +
-            `🆔 **شناسه عددی:** \`${dbUser.telegramId}\`\n\n` +
+            `🔔 <b>درخواست احراز هویت جدید</b>\n\n` +
+            `👤 <b>کاربر:</b> ${adminMention}\n` +
+            `📝 <b>نام کامل:</b> ${escapeHtml(dbUser.fullName)}\n` +
+            `🌍 <b>کشور اقامت:</b> ${escapeHtml(dbUser.country)}\n` +
+            `📱 <b>شماره تلفن:</b> ${escapeHtml(dbUser.phoneNumber)}\n` +
+            `🆔 <b>شناسه عددی:</b> <code>${dbUser.telegramId}</code>\n\n` +
             `👇 تصویر مدرک پیوست شده است (بخش‌های شناسایی و آدرس به صورت خودکار پوشانده شده‌اند):`;
 
           // Send details and photo to Admin (using the already uploaded masked photo)
-          const sentTextMsg = await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'Markdown' });
+          const sentTextMsg = await ctx.telegram.sendMessage(config.ADMIN_CHAT_ID, adminMsg, { parse_mode: 'HTML' });
           
           let sentPhotoMsg;
           if (fileIdToSave) {
@@ -329,7 +343,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
               config.ADMIN_CHAT_ID,
               fileIdToSave,
               {
-                caption: `👤 مدرک هویتی ${dbUser.fullName}\nآیا این کاربر تایید شود؟`,
+                caption: `👤 مدرک هویتی ${escapeHtml(dbUser.fullName)}\nآیا این کاربر تایید شود؟`,
                 ...Markup.inlineKeyboard([
                   [
                     Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${dbUser.id}`),
