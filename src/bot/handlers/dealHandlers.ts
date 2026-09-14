@@ -10,6 +10,7 @@ import { updateGroupProposalMessage } from '../utils/groupMessage';
 import { getMainKeyboard, mainKeyboard } from '../utils/keyboards';
 import { AMOUNT_EPSILON } from '../utils/amounts';
 import { escapeHtml } from '../utils/html';
+import { deadlineFor } from '../../domain/dealMachine';
 
 export function registerDealHandlers(bot: Telegraf<BotContext>) {
   bot.hears('🤝 مدیریت پیشنهادات', checkVerified, async (ctx) => {
@@ -132,7 +133,8 @@ export function registerDealHandlers(bot: Telegraf<BotContext>) {
               proposalId: offer.proposalId,
               acceptorId: offer.proposerId,
               amount: tradeAmount,
-              status: 'PENDING_ADMIN'
+              status: 'PENDING_ADMIN',
+              deadlineAt: deadlineFor('PENDING_ADMIN')
             }
           });
         });

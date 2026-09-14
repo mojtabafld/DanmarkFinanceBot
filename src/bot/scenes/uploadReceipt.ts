@@ -3,6 +3,8 @@ import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard } from '../utils/keyboards';
 import { escapeHtml, mentionUser } from '../utils/html';
+import { transitionDeal } from '../../data/deals';
+import { refreshDealCards } from '../handlers/dealCardHandlers';
 
 interface ReceiptState {
   dealId?: number;
@@ -341,15 +343,27 @@ export const uploadReceiptWizard = new Scenes.WizardScene<MyReceiptContext>(
           return ctx.scene.leave();
         }
 
-        // Update status in DB
-        const newStatus = role === 'BUYER' ? 'BUYER_PAID_PENDING_APPROVAL' : 'SELLER_PAID_PENDING_APPROVAL';
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: {
-            status: newStatus,
-            buyerPaymentInfo: role === 'BUYER' ? buyerPaymentInfo : undefined
-          }
-        });
+        // The buyer's account details are part of what the admin checks the receipt
+        // against, so they are stored before the state moves.
+        if (role === 'BUYER' && buyerPaymentInfo) {
+          await prisma.deal.update({ where: { id: dealId }, data: { buyerPaymentInfo } });
+        }
+
+        const moved = await transitionDeal(
+          dealId,
+          { type: role === 'BUYER' ? 'BUYER_UPLOAD_RECEIPT' : 'SELLER_UPLOAD_RECEIPT' },
+          ctx.from!.id.toString()
+        );
+
+        if (!moved.ok) {
+          await ctx.reply(
+            '⚠️ وضعیت این معامله هم‌زمان تغییر کرد. لطفاً وضعیت فعلی را بررسی کنید.',
+            mainKeyboard
+          );
+          return ctx.scene.leave();
+        }
+
+        await refreshDealCards(ctx.telegram, dealId);
 
         // Notify Admin
         if (role === 'BUYER') {

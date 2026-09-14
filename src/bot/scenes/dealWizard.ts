@@ -5,6 +5,7 @@ import { updateGroupProposalMessage } from '../utils/groupMessage';
 import { AMOUNT_EPSILON } from '../utils/amounts';
 import { mainKeyboard } from '../utils/keyboards';
 import { escapeHtml, mentionUser } from '../utils/html';
+import { deadlineFor } from '../../domain/dealMachine';
 
 export const ACCEPT_DEAL_SCENE_ID = 'ACCEPT_DEAL_SCENE';
 
@@ -281,6 +282,7 @@ export const acceptDealWizard = new Scenes.WizardScene<MyDealWizardContext>(
               proposalId: freshProposal.id,
               acceptorId: acceptor.id,
               status: 'PENDING_ADMIN',
+              deadlineAt: deadlineFor('PENDING_ADMIN'),
               amount: amount
             }
           });

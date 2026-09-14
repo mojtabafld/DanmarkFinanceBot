@@ -2,6 +2,7 @@ import { Context, MiddlewareFn, Markup } from 'telegraf';
 import { prisma } from '../../database/db';
 import { config } from '../../config';
 import { mainKeyboard, getMainKeyboard, pendingVerificationKeyboard } from '../utils/keyboards';
+import { canOperate } from '../../data/admins';
 import { escapeHtml } from '../utils/html';
 
 export const dynamicKeyboardMiddleware: MiddlewareFn<Context> = async (ctx, next) => {
@@ -108,7 +109,7 @@ export const checkVerified: MiddlewareFn<Context> = async (ctx, next) => {
 
 export const requireAdmin: MiddlewareFn<Context> = async (ctx, next) => {
   const from = ctx.from;
-  if (!from || from.id.toString() !== config.ADMIN_CHAT_ID.toString()) {
+  if (!from || !(await canOperate(from.id))) {
     await ctx.reply('⚠️ شما دسترسی به بخش مدیریت ندارید.');
     return;
   }

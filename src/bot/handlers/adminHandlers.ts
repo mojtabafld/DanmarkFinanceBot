@@ -8,6 +8,11 @@ import { ADMIN_SEARCH_SCENE_ID } from '../scenes/adminSearch';
 import { ADMIN_EDIT_USER_SCENE_ID, ADMIN_REJECT_USER_SCENE_ID } from '../scenes/adminEditUser';
 import { ADMIN_EDIT_PROP_SCENE_ID } from '../scenes/adminEditProp';
 import { ADMIN_UPDATE_RATES_SCENE_ID } from '../scenes/adminUpdateRates';
+import { canOperate, notifyChatId } from '../../data/admins';
+import { recordAudit, snapshot } from '../../data/audit';
+import { transitionDeal } from '../../data/deals';
+import { refreshDealCards } from './dealCardHandlers';
+import { applyDealEvent } from '../../domain/dealMachine';
 import { escapeHtml, mentionUser } from '../utils/html';
 
 /**
@@ -49,7 +54,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
   // Admin Command (/admin)
   bot.command('admin', async (ctx) => {
     const from = ctx.from;
-    if (!from || from.id.toString() !== config.ADMIN_CHAT_ID.toString()) {
+    if (!from || !(await canOperate(from.id))) {
       await ctx.reply('⚠️ شما مجاز به استفاده از این دستور نیستید.');
       return;
     }
@@ -80,7 +85,10 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
     const from = ctx.from;
     if (!from) return next();
 
-    const isAdmin = from.id.toString() === config.ADMIN_CHAT_ID.toString();
+    // Identity is a lookup against the Admin table now. Comparing the sender against
+    // ADMIN_CHAT_ID could never match when that id named a group, which is what the
+    // setup docs told operators to configure.
+    const isAdmin = await canOperate(from.id);
 
     if (isAdminCallback(data) && !isAdmin) {
       await ctx.answerCbQuery('⚠️ این دکمه مخصوص مدیریت ربات است.', { show_alert: true });
@@ -1462,10 +1470,12 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         const agreedPrice = acceptedOffer ? acceptedOffer.price : deal.proposal.price;
         const totalValue = deal.amount * agreedPrice;
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'WAITING_BUYER_PAYMENT' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_APPROVE' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const isProposalBuy = deal.proposal.type === 'BUY';
         const buyer = isProposalBuy ? deal.proposal.creator : deal.acceptor;
@@ -1535,10 +1545,30 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         });
         const agreedPrice = acceptedOffer ? acceptedOffer.price : deal.proposal.price;
 
+        // Rejecting also returns the reserved amount to the ad, so this stays one
+        // compound transaction rather than a call to transitionDeal. The lifecycle is
+        // still the authority on whether the rejection is legal at all.
+        const verdict = applyDealEvent(deal.status, { type: 'ADMIN_REJECT' });
+        if (!verdict.ok) {
+          await ctx.reply(`⚠️ در وضعیت فعلی (${deal.status}) امکان رد این معامله نیست.`);
+          return;
+        }
+
         await prisma.$transaction(async (tx) => {
-          await tx.deal.update({
-            where: { id: dealId },
-            data: { status: 'REJECTED' }
+          const claimed = await tx.deal.updateMany({
+            where: { id: dealId, status: verdict.from },
+            data: { status: verdict.to, deadlineAt: null, remindedAt: null }
+          });
+          if (claimed.count !== 1) throw new Error('DEAL_RACED');
+
+          await recordAudit(tx, {
+            actor: from.id.toString(),
+            action: 'deal.admin_reject',
+            subjectType: 'Deal',
+            subjectId: dealId,
+            before: { status: verdict.from },
+            after: { status: verdict.to },
+            note: 'amount returned to the ad'
           });
 
           const freshProposal = await tx.proposal.findUnique({
@@ -1597,9 +1627,13 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         await ctx.editMessageText(`❌ معامله #${dealId} رد شد.`).catch(() => {});
         await updateGroupProposalMessage(ctx.telegram, deal.proposalId);
-      } catch (err) {
-        console.error('Error in ADMIN_DEAL_REJECT callback:', err);
-        await ctx.reply('❌ خطایی در رد معامله رخ داد.');
+      } catch (err: any) {
+        if (err?.message === 'DEAL_RACED') {
+          await ctx.reply('⚠️ این معامله هم‌زمان توسط درخواست دیگری تعیین تکلیف شد.');
+        } else {
+          console.error('Error in ADMIN_DEAL_REJECT callback:', err);
+          await ctx.reply('❌ خطایی در رد معامله رخ داد.');
+        }
       }
       return;
     }
@@ -1623,10 +1657,12 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           return;
         }
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'WAITING_SELLER_PAYMENT' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_CONFIRM_BUYER_RECEIPT' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const isProposalBuy = deal.proposal.type === 'BUY';
         const seller = isProposalBuy ? deal.acceptor : deal.proposal.creator;
@@ -1676,10 +1712,12 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           return;
         }
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'WAITING_BUYER_PAYMENT' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_REJECT_BUYER_RECEIPT' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const isProposalBuy = deal.proposal.type === 'BUY';
         const buyer = isProposalBuy ? deal.proposal.creator : deal.acceptor;
@@ -1728,10 +1766,12 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           return;
         }
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'COMPLETED' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_CONFIRM_SELLER_RECEIPT' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const freshProp = await prisma.proposal.findUnique({
           where: { id: deal.proposalId }
@@ -1810,10 +1850,12 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           return;
         }
 
-        await prisma.deal.update({
-          where: { id: dealId },
-          data: { status: 'WAITING_SELLER_PAYMENT' }
-        });
+        const moved = await transitionDeal(dealId, { type: 'ADMIN_REJECT_SELLER_RECEIPT' }, from.id.toString());
+        if (!moved.ok) {
+          await ctx.reply(`⚠️ این معامله هم‌زمان تغییر کرد یا دیگر در این مرحله نیست (${moved.current ?? moved.reason}).`);
+          return;
+        }
+        await refreshDealCards(ctx.telegram, dealId);
 
         const isProposalBuy = deal.proposal.type === 'BUY';
         const seller = isProposalBuy ? deal.acceptor : deal.proposal.creator;

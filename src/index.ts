@@ -2,6 +2,8 @@ import { bot } from './bot';
 import { prisma } from './database/db';
 import { pruneStaleSessions } from './database/sessionStore';
 import { validateConfig } from './config';
+import { startDeadlineSweep } from './jobs/deadlineSweep';
+import { pruneIdleBuckets } from './data/rateLimit';
 import * as http from 'http';
 
 async function main() {
@@ -28,6 +30,11 @@ async function main() {
 
     const pruned = await pruneStaleSessions();
     if (pruned > 0) console.log(`🧹 Removed ${pruned} stale session(s).`);
+    await pruneIdleBuckets().catch(err => console.error('Rate bucket prune failed:', err));
+
+    // Nothing else moves a stalled trade, so this must be running for a deal to have
+    // any deadline at all.
+    const stopSweep = startDeadlineSweep(bot.telegram);
 
     // Enable graceful stop. These must be registered BEFORE launching: under long
     // polling `bot.launch()` does not resolve until polling stops, so anything
@@ -38,6 +45,7 @@ async function main() {
       stopping = true;
       console.log(`⏳ Stopping application (${signal})...`);
       try {
+        stopSweep();
         bot.stop(signal);
         await new Promise<void>(resolve => server.close(() => resolve()));
         await prisma.$disconnect();

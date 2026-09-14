@@ -10,6 +10,9 @@ import { REQUEST_LIMIT_INCREASE_SCENE_ID } from '../scenes/requestLimitIncrease'
 import { mainKeyboard, verifyStartKeyboard, pendingVerificationKeyboard, getMainKeyboard } from '../utils/keyboards';
 import { formatToShamsi } from '../utils/groupMessage';
 import { escapeHtml } from '../utils/html';
+import { closeAccount } from '../../data/accountClosure';
+import { consume } from '../../data/rateLimit';
+import { t } from '../../i18n';
 
 function extractLivePrice(html: string, marketRow: string): number | null {
   const regex = new RegExp(`<tr[^>]*data-market-row=["']${marketRow}["'][^>]*>`, 'i');
@@ -229,6 +232,12 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
   });
 
   bot.hears('💵 نرخ لحظه‌ای ارز', checkVerified, async (ctx) => {
+    // This makes an outbound request to a third party on every press.
+    const limit = await consume('liveRates', ctx.from!.id);
+    if (!limit.allowed) {
+      await ctx.reply(t('limit.hit', { seconds: limit.retryAfterSeconds }));
+      return;
+    }
     try {
       const response = await axios.get('https://www.tgju.org/', {
         headers: {
@@ -337,9 +346,7 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
     if (data === 'USER_DELETE_ACCOUNT') {
       await ctx.answerCbQuery();
       await ctx.editMessageText(
-        '🚨 <b>حذف کامل حساب کاربری</b>\n\n' +
-          'توجه: با این اقدام تمام سوابق و اطلاعات شما از دیتابیس پاک خواهد شد و جهت استفاده مجدد باید از نو احراز هویت کنید.\n\n' +
-          'آیا از حذف کامل حساب خود مطمئن هستید؟',
+        `${t('close.confirm.title')}\n\n${t('close.confirm.body')}`,
         {
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
@@ -361,18 +368,34 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
     if (data === 'CONFIRM_DELETE_MY_ACCOUNT') {
       await ctx.answerCbQuery();
       try {
-        await prisma.user.delete({
-          where: { telegramId: from.id.toString() }
-        });
+        const telegramId = from.id.toString();
+        const result = await closeAccount(telegramId, telegramId);
 
         await ctx.deleteMessage().catch(() => {});
-        await ctx.reply(
-          '🗑 <b>حساب کاربری و تمام اطلاعات شما با موفقیت از سیستم پاک شد.</b>',
-          verifyStartKeyboard
-        );
+
+        if (result.ok) {
+          await ctx.reply(t('close.done'), verifyStartKeyboard);
+          return;
+        }
+
+        if (result.reason === 'OPEN_DEALS') {
+          // Hard-deleting here used to cascade through this user's ads into the
+          // counterparty's deals, so someone who had already been paid could erase
+          // the buyer's record of it. Unsettled trades now block closure outright.
+          await ctx.reply(
+            t('close.blocked', {
+              count: result.dealIds.length,
+              ids: result.dealIds.map(id => `#${id}`).join('، ')
+            }),
+            mainKeyboard
+          );
+          return;
+        }
+
+        await ctx.reply(t('close.notfound'), verifyStartKeyboard);
       } catch (err) {
-        console.error('Error deleting account:', err);
-        await ctx.reply('❌ خطا در حذف حساب کاربری.');
+        console.error('Error closing account:', err);
+        await ctx.reply(t('err.unexpected'));
       }
       return;
     }

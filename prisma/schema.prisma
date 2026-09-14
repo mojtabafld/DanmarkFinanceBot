@@ -63,6 +63,9 @@ model User {
   hasPendingLimitRequest Boolean            @default(false)
   adminVerifyMsgId       Int?
   adminVerifyPhotoId     Int?
+  /// Set when the user asks to be removed. The row stays so their counterparties
+  /// keep their trade history; the personal columns above are scrubbed.
+  deletedAt              DateTime?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
   proposals              Proposal[]         @relation("UserProposals")
@@ -73,36 +76,47 @@ model User {
 model Proposal {
   id             Int            @id @default(autoincrement())
   creatorId      Int
-  creator        User           @relation("UserProposals", fields: [creatorId], references: [id], onDelete: Cascade)
+  creator        User           @relation("UserProposals", fields: [creatorId], references: [id], onDelete: Restrict)
   type           ProposalType
-  currency       String         // e.g. "USD", "EUR", "USDT"
+  currency       String // e.g. "USD", "EUR", "USDT"
   amount         Float
-  price          Float          // Price per unit or total price
-  priceCurrency  String         // e.g. "Toman", "USD"
+  price          Float // Price per unit or total price
+  priceCurrency  String // e.g. "Toman", "USD"
   status         ProposalStatus @default(PENDING)
-  groupMessageId Int?           // Message ID in the Telegram group to update status
+  groupMessageId Int? // Message ID in the Telegram group to update status
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   deals          Deal[]
   counterOffers  CounterOffer[]
-  
+
   // Additional fields
-  code           String?        @unique
+  code           String?   @unique
   paymentMethod  String?
   originalAmount Float?
   editedAt       DateTime?
 }
 
 model Deal {
-  id               Int        @id @default(autoincrement())
-  proposalId       Int
-  proposal         Proposal   @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-  acceptorId       Int
-  acceptor         User       @relation("UserDeals", fields: [acceptorId], references: [id], onDelete: Cascade)
-  status           DealStatus @default(PENDING)
-  amount           Float      @default(0)
-  createdAt        DateTime   @default(now())
-  buyerPaymentInfo String?
+  id                Int        @id @default(autoincrement())
+  proposalId        Int
+  proposal          Proposal   @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  acceptorId        Int
+  acceptor          User       @relation("UserDeals", fields: [acceptorId], references: [id], onDelete: Restrict)
+  status            DealStatus @default(PENDING)
+  amount            Float      @default(0)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @default(now()) @updatedAt
+  buyerPaymentInfo  String?
+  /// When the current state expires. The sweep reminds at half-time and escalates
+  /// to the admins at expiry, so a half-finished trade cannot sit forever.
+  deadlineAt        DateTime?
+  /// Set once the half-time reminder for the current state has been sent.
+  remindedAt        DateTime?
+  /// Message id of each side's deal card, edited in place as the state changes.
+  creatorCardMsgId  Int?
+  acceptorCardMsgId Int?
+
+  @@index([status, deadlineAt])
 }
 
 model CounterOffer {
@@ -110,7 +124,7 @@ model CounterOffer {
   proposalId Int
   proposal   Proposal           @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   proposerId Int
-  proposer   User               @relation("UserCounterOffers", fields: [proposerId], references: [id], onDelete: Cascade)
+  proposer   User               @relation("UserCounterOffers", fields: [proposerId], references: [id], onDelete: Restrict)
   price      Float
   amount     Float              @default(0)
   status     CounterOfferStatus @default(PENDING)
@@ -125,4 +139,59 @@ model Session {
   key       String   @id
   data      Json
   updatedAt DateTime @updatedAt
+}
+
+enum AdminRole {
+  /// May read the panel and the audit trail, but cannot move money.
+  VIEWER
+  /// May approve trades, verifications and receipts.
+  OPERATOR
+  /// May do all of the above and manage the admin list.
+  OWNER
+}
+
+/// Individual admins. Replaces comparing the sender against a single chat id, which
+/// could never match when that id named a group.
+model Admin {
+  id         Int       @id @default(autoincrement())
+  telegramId String    @unique
+  label      String?
+  role       AdminRole @default(OPERATOR)
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([revokedAt])
+}
+
+/// Append-only record of every action that moves money or changes a user's standing.
+/// Written inside the same transaction as the change it describes.
+model AuditEvent {
+  id          BigInt   @id @default(autoincrement())
+  /// Telegram id of whoever acted, or "system" for scheduled jobs.
+  actor       String
+  /// Dotted action name, e.g. "deal.approve" or "user.verify.reject".
+  action      String
+  /// Model and id the action applied to, e.g. "Deal" and 42.
+  subjectType String
+  subjectId   String
+  /// State before and after, for whatever fields the action touched.
+  before      Json?
+  after       Json?
+  /// Free-form context: the reason an admin typed, the job that ran.
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([subjectType, subjectId])
+  @@index([actor, createdAt])
+  @@index([createdAt])
+}
+
+/// Per-user token bucket for flood control. Kept in the database so the limit holds
+/// across restarts and across more than one bot instance.
+model RateBucket {
+  key       String   @id
+  tokens    Float
+  updatedAt DateTime @updatedAt
+
+  @@index([updatedAt])
 }

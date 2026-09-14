@@ -22,6 +22,9 @@ import { registerAdminHandlers } from './handlers/adminHandlers';
 import { registerProposalHandlers } from './handlers/proposalHandlers';
 import { registerDealHandlers } from './handlers/dealHandlers';
 import { registerUserHandlers } from './handlers/userHandlers';
+import { registerDealCardHandlers } from './handlers/dealCardHandlers';
+import { rateLimitMiddleware } from './middleware/rateLimit';
+import { globalCancel } from './middleware/globalCancel';
 
 // Custom Bot Context
 export interface BotContext extends MyWizardContext {}
@@ -83,6 +86,11 @@ const stage = new Scenes.Stage<BotContext>([
 ]);
 
 bot.use(session({ store: createPrismaSessionStore<any>() }));
+// Flood control runs before the scene stage, so a burst cannot drive a wizard.
+bot.use(rateLimitMiddleware);
+// A cancel that works at every step of every wizard, ahead of the stage that would
+// otherwise swallow the message as wizard input.
+bot.use(globalCancel);
 bot.use(stage.middleware());
 bot.use(dynamicKeyboardMiddleware);
 
@@ -91,6 +99,7 @@ registerAdminHandlers(bot);
 registerProposalHandlers(bot);
 registerDealHandlers(bot);
 registerUserHandlers(bot);
+registerDealCardHandlers(bot);
 
 /**
  * Last-resort handler. Without it a single rejected Telegram API call inside a
