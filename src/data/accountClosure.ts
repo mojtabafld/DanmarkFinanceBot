@@ -18,7 +18,13 @@ import type { DealStatus } from '@prisma/client';
 const OPEN_STATES = (Object.keys(DEAL_STATES) as DealStatus[]).filter(s => !DEAL_STATES[s].terminal);
 
 export type ClosureResult =
-  | { ok: true; scrubbed: true }
+  /**
+   * `adminCopyMessageIds` are the admin-chat messages holding this user's identity
+   * document. The data layer clears the row but cannot call Telegram, so the caller
+   * deletes them; without this the document would outlive the account, which is
+   * exactly the gap the retention work exists to close.
+   */
+  | { ok: true; scrubbed: true; adminCopyMessageIds: number[] }
   | { ok: false; reason: 'NOT_FOUND' }
   | { ok: false; reason: 'OPEN_DEALS'; dealIds: number[] };
 
@@ -50,6 +56,10 @@ export async function closeAccount(telegramId: string, actor: string): Promise<C
     return { ok: false, reason: 'OPEN_DEALS', dealIds: open.map(d => d.id) };
   }
 
+  const adminCopyMessageIds = [user.adminVerifyPhotoId, user.adminVerifyMsgId].filter(
+    (id): id is number => id !== null
+  );
+
   await prisma.$transaction(async (tx) => {
     const scrubbed: Prisma.UserUpdateInput = {
       deletedAt: new Date(),
@@ -61,6 +71,7 @@ export async function closeAccount(telegramId: string, actor: string): Promise<C
       country: null,
       phoneNumber: null,
       documentFileId: null,
+      documentUploadedAt: null,
       rejectReason: null,
       adminVerifyMsgId: null,
       adminVerifyPhotoId: null,
@@ -86,5 +97,5 @@ export async function closeAccount(telegramId: string, actor: string): Promise<C
     });
   });
 
-  return { ok: true, scrubbed: true };
+  return { ok: true, scrubbed: true, adminCopyMessageIds };
 }

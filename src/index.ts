@@ -3,6 +3,7 @@ import { prisma } from './database/db';
 import { pruneStaleSessions } from './database/sessionStore';
 import { validateConfig } from './config';
 import { startDeadlineSweep } from './jobs/deadlineSweep';
+import { startDocumentRetention } from './jobs/documentRetention';
 import { pruneIdleBuckets } from './data/rateLimit';
 import * as http from 'http';
 
@@ -36,6 +37,10 @@ async function main() {
     // any deadline at all.
     const stopSweep = startDeadlineSweep(bot.telegram);
 
+    // Identity documents are deleted once their retention window has passed, from the
+    // bot and from the admin chat alike.
+    const stopRetention = startDocumentRetention(bot.telegram);
+
     // Enable graceful stop. These must be registered BEFORE launching: under long
     // polling `bot.launch()` does not resolve until polling stops, so anything
     // awaited after it never runs and the process had no SIGTERM handling at all.
@@ -46,6 +51,7 @@ async function main() {
       console.log(`⏳ Stopping application (${signal})...`);
       try {
         stopSweep();
+        stopRetention();
         bot.stop(signal);
         await new Promise<void>(resolve => server.close(() => resolve()));
         await prisma.$disconnect();

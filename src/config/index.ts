@@ -19,6 +19,8 @@ export interface Config {
    * This must be an individual Telegram id, never a group.
    */
   BOOTSTRAP_ADMIN_ID: number;
+  /** Hours an identity document is kept after upload before it is deleted. */
+  DOCUMENT_RETENTION_HOURS: number;
 }
 
 function getEnv(key: string, required = true): string {
@@ -65,7 +67,8 @@ const resolvers: { [K in keyof Config]: () => Config[K] } = {
   // Split them when the admin chat becomes a group: the notify id may be the group,
   // the bootstrap id must stay an individual or nobody can pass the identity check.
   ADMIN_NOTIFY_CHAT_ID: () => optionalNumericEnv('ADMIN_NOTIFY_CHAT_ID', () => getNumericEnv('ADMIN_CHAT_ID')),
-  BOOTSTRAP_ADMIN_ID: () => optionalNumericEnv('BOOTSTRAP_ADMIN_ID', () => getNumericEnv('ADMIN_CHAT_ID'))
+  BOOTSTRAP_ADMIN_ID: () => optionalNumericEnv('BOOTSTRAP_ADMIN_ID', () => getNumericEnv('ADMIN_CHAT_ID')),
+  DOCUMENT_RETENTION_HOURS: () => optionalNumericEnv('DOCUMENT_RETENTION_HOURS', () => 24)
 };
 
 const cache = new Map<keyof Config, Config[keyof Config]>();

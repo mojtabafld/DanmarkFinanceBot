@@ -58,6 +58,10 @@ model User {
   country                String?
   phoneNumber            String?
   documentFileId         String?
+  /// When the identity document was uploaded. The retention job deletes the document
+  /// this many hours later; kept separate from updatedAt, which moves for many
+  /// unrelated reasons and would keep pushing the deletion out.
+  documentUploadedAt     DateTime?
   rejectReason           String?
   dailyProposalLimit     Int                @default(5)
   hasPendingLimitRequest Boolean            @default(false)

@@ -11,6 +11,7 @@ import { mainKeyboard, verifyStartKeyboard, pendingVerificationKeyboard, getMain
 import { formatToShamsi } from '../utils/groupMessage';
 import { escapeHtml } from '../utils/html';
 import { closeAccount } from '../../data/accountClosure';
+import { notifyChatId } from '../../data/admins';
 import { consume } from '../../data/rateLimit';
 import { t } from '../../i18n';
 
@@ -374,6 +375,12 @@ export function registerUserHandlers(bot: Telegraf<BotContext>) {
         await ctx.deleteMessage().catch(() => {});
 
         if (result.ok) {
+          // The row is scrubbed; these are the copies sitting in the admin chat.
+          for (const messageId of result.adminCopyMessageIds) {
+            await ctx.telegram.deleteMessage(notifyChatId(), messageId).catch(err => {
+              console.error(`Could not delete admin document copy ${messageId}:`, err?.description ?? err);
+            });
+          }
           await ctx.reply(t('close.done'), verifyStartKeyboard);
           return;
         }

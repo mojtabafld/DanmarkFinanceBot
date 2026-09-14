@@ -14,6 +14,7 @@ export default defineConfig({
      * having. Per-file isolation via separate schemas would be the answer if it ever
      * did.
      */
+    setupFiles: ['./tests/setup.ts'],
     fileParallelism: false,
     sequence: { concurrent: false }
   }

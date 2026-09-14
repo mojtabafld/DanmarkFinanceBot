@@ -4,6 +4,7 @@ import { config } from '../../config';
 import { verifyStartKeyboard, pendingVerificationKeyboard } from '../utils/keyboards';
 import { maskImage } from '../utils/imageMasking';
 import { escapeHtml, mentionUser } from '../utils/html';
+import { t } from '../../i18n';
 
 interface VerifyState {
   fullName?: string;
@@ -232,7 +233,10 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
             'تصویر شما <b>بدون هیچ‌گونه مخدوش‌سازی</b> و دقیقاً به همین شکل برای ادمین ارسال خواهد شد.\n\n' +
             'اگر مدرک شما شامل شماره شناسایی/CPR یا آدرس است، لطفاً آن بخش‌ها را خودتان بپوشانید و تصویر را دوباره بفرستید.';
 
-      const previewPhoto = await ctx.replyWithPhoto({ source: buffer }, { caption });
+      const previewPhoto = await ctx.replyWithPhoto(
+        { source: buffer },
+        { caption: `${caption}\n\n${t('retention.notice', { hours: config.DOCUMENT_RETENTION_HOURS })}` }
+      );
 
       if (previewPhoto && previewPhoto.photo) {
         finalFileId = previewPhoto.photo[previewPhoto.photo.length - 1].file_id;
@@ -302,6 +306,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
               country: ctx.wizard.state.country,
               phoneNumber: ctx.wizard.state.phoneNumber,
               documentFileId: fileIdToSave,
+              documentUploadedAt: new Date(),
             },
             create: {
               telegramId: from.id.toString(),
@@ -313,6 +318,7 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
               country: ctx.wizard.state.country,
               phoneNumber: ctx.wizard.state.phoneNumber,
               documentFileId: fileIdToSave,
+              documentUploadedAt: new Date(),
             },
           });
 
