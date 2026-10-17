@@ -100,6 +100,8 @@ export async function applyKycResult(telegram: Telegram, r: KycResult): Promise<
   }
 
   const fullName = documentName(r) ?? user.fullName;
+  // The document photos and video stay in the KYC app; admins open them from here.
+  const panelUrl = `${config.KYC_BASE_URL}/admin#${encodeURIComponent(r.verification_id)}`;
   const mention = mentionUser({ username: user.username, firstName: user.firstName, telegramId: user.telegramId });
   const header =
     `👤 <b>کاربر:</b> ${mention}\n` +
@@ -117,7 +119,7 @@ export async function applyKycResult(telegram: Telegram, r: KycResult): Promise<
     await telegram.sendMessage(
       config.ADMIN_CHAT_ID,
       `🆕 <b>ثبت‌نام کاربر جدید</b>\n✅ احراز هویت با اسکن چهره و مدرک تایید شد\n\n${header}${adminSummary(r)}`,
-      { parse_mode: 'HTML' }
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.url('🔍 مشاهدهٔ مدارک و ویدیو', panelUrl)]]) }
     );
     const info = userSummary(r);
     if (info) {
@@ -156,7 +158,7 @@ export async function applyKycResult(telegram: Telegram, r: KycResult): Promise<
             Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${user.id}`),
             Markup.button.callback('❌ رد احراز هویت', `REJECT_USER_${user.id}`)
           ],
-          [Markup.button.url('🔍 پنل بررسی KYC', `${config.KYC_BASE_URL}/admin`)]
+          [Markup.button.url('🔍 مشاهدهٔ مدارک و ویدیو', panelUrl)]
         ])
       }
     );
