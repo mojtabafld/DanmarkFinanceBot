@@ -2,7 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import { BotContext } from '../index';
 import { config } from '../../config';
 import { prisma } from '../../database/db';
-import { getMainKeyboard, mainKeyboard } from '../utils/keyboards';
+import { getMainKeyboard } from '../utils/keyboards';
 import { updateGroupProposalMessage, formatToShamsi, getTimezoneByCountry } from '../utils/groupMessage';
 import { ADMIN_SEARCH_SCENE_ID } from '../scenes/adminSearch';
 import { ADMIN_EDIT_USER_SCENE_ID, ADMIN_REJECT_USER_SCENE_ID } from '../scenes/adminEditUser';
@@ -14,6 +14,7 @@ import { transitionDeal } from '../../data/deals';
 import { refreshDealCards } from './dealCardHandlers';
 import { applyDealEvent } from '../../domain/dealMachine';
 import { escapeHtml, mentionUser } from '../utils/html';
+import { sendGroupInvite } from '../../data/membership';
 
 /**
  * Callback-data prefixes that only the admin may trigger. Kept in one place so a
@@ -546,22 +547,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           data: { verificationStatus: 'APPROVED' }
         });
 
-        const inviteLink = await ctx.telegram.createChatInviteLink(config.GROUP_CHAT_ID, {
-          member_limit: 1,
-          name: `Invite for ${user.fullName}`,
-          expire_date: Math.floor(Date.now() / 1000) + 86400
-        });
-
-        const userMsg =
-          `🎉 <b>احراز هویت شما با موفقیت توسط مدیریت تایید شد!</b>\n\n` +
-          `لینک عضویت یک‌بار مصرف شما در گروه معاملاتی دانمارک (دارای اعتبار ۲۴ ساعته):\n` +
-          `🔗 ${inviteLink.invite_link}\n\n` +
-          `پس از عضویت در گروه، می‌توانید پیشنهادهای خود را از دکمه‌های زیر ثبت و مدیریت کنید.`;
-
-        await ctx.telegram.sendMessage(user.telegramId, userMsg, {
-          parse_mode: 'HTML',
-          ...mainKeyboard
-        });
+        await sendGroupInvite(ctx.telegram, user, 'احراز هویت شما با موفقیت توسط مدیریت تایید شد!');
 
         const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
         const confirmationText =

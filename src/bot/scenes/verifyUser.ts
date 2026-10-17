@@ -5,6 +5,46 @@ import { verifyStartKeyboard, pendingVerificationKeyboard } from '../utils/keybo
 import { maskImage } from '../utils/imageMasking';
 import { escapeHtml, mentionUser } from '../utils/html';
 import { t } from '../../i18n';
+import { kycEnabled, kycLink, LINK_TTL_SECONDS } from '../../kyc/link';
+
+/**
+ * With the face-scan KYC app configured, the document and a live face scan are
+ * checked there instead of a photo going to the admin. The details typed so far
+ * are saved now; the result arrives later at /kyc/result (src/kyc/result.ts).
+ */
+async function startFaceScan(ctx: MyVerifyContext) {
+  const from = ctx.from!;
+  const details = {
+    username: from.username || null,
+    firstName: from.first_name,
+    lastName: from.last_name || null,
+    fullName: ctx.wizard.state.fullName,
+    country: ctx.wizard.state.country,
+    phoneNumber: ctx.wizard.state.phoneNumber
+  };
+  await prisma.user.upsert({
+    where: { telegramId: from.id.toString() },
+    update: details,
+    create: { telegramId: from.id.toString(), ...details }
+  });
+
+  const link = kycLink(from.id.toString());
+  await ctx.reply('✅ اطلاعات شما ثبت شد.', Markup.removeKeyboard());
+  await ctx.reply(
+    '📸 <b>مرحله آخر: احراز هویت با مدرک و چهره</b>\n\n' +
+      'با دکمه زیر، از روی و پشت کارت اقامت (یا صفحه عکس‌دار پاسپورت) عکس بگیرید و سپس با چرخاندن آرام سر، چهره خود را اسکن کنید.\n' +
+      'نتیجه به‌طور خودکار همین‌جا اعلام می‌شود.\n\n' +
+      `⏱ این لینک ${Math.round(LINK_TTL_SECONDS / 60)} دقیقه اعتبار دارد. اگر دوربین داخل تلگرام باز نشد، از دکمه «باز کردن در مرورگر» استفاده کنید.`,
+    {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.webApp('📸 شروع احراز هویت', link)],
+        [Markup.button.url('🌐 باز کردن در مرورگر', link)]
+      ])
+    }
+  );
+  return ctx.scene.leave();
+}
 
 interface VerifyState {
   fullName?: string;
@@ -163,6 +203,8 @@ export const verifyUserWizard = new Scenes.WizardScene<MyVerifyContext>(
     const message = ctx.message;
     if (message && 'contact' in message) {
       ctx.wizard.state.phoneNumber = message.contact.phone_number;
+
+      if (kycEnabled()) return startFaceScan(ctx);
 
       await ctx.reply(
         '📎 <b>ارسال مدرک اقامتی</b>\n\n' +
