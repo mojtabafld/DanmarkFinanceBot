@@ -22,9 +22,16 @@ async function startFaceScan(ctx: MyVerifyContext) {
     country: ctx.wizard.state.country,
     phoneNumber: ctx.wizard.state.phoneNumber
   };
+  const existing = await prisma.user.findUnique({ where: { telegramId: from.id.toString() } });
+  // Someone who closed their account and signs up again starts over: a scan
+  // result is never applied to a DELETED account.
+  const reopened =
+    existing?.verificationStatus === 'DELETED'
+      ? { verificationStatus: 'UNVERIFIED' as const, deletedAt: null, kycResult: null }
+      : {};
   await prisma.user.upsert({
     where: { telegramId: from.id.toString() },
-    update: details,
+    update: { ...details, ...reopened },
     create: { telegramId: from.id.toString(), ...details }
   });
 

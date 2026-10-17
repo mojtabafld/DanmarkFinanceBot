@@ -68,6 +68,7 @@ export async function applyKycResult(telegram: Telegram, r: KycResult): Promise<
   if (user.kycResult === key) return;
   // A scan never overrides a decision already made about the account.
   if (['APPROVED', 'DEACTIVATED', 'DELETED'].includes(user.verificationStatus)) {
+    console.log(`KYC result ${r.verification_id} (${r.status}) not applied: account is ${user.verificationStatus}.`);
     await prisma.user.update({ where: { id: user.id }, data: { kycResult: key } });
     return;
   }
