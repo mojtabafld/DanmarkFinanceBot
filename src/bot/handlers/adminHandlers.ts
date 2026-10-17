@@ -2,7 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import { BotContext } from '../index';
 import { config } from '../../config';
 import { prisma } from '../../database/db';
-import { getMainKeyboard, mainKeyboard } from '../utils/keyboards';
+import { getMainKeyboard } from '../utils/keyboards';
 import { updateGroupProposalMessage, formatToShamsi, getTimezoneByCountry } from '../utils/groupMessage';
 import { ADMIN_SEARCH_SCENE_ID } from '../scenes/adminSearch';
 import { ADMIN_EDIT_USER_SCENE_ID, ADMIN_REJECT_USER_SCENE_ID } from '../scenes/adminEditUser';
@@ -14,6 +14,8 @@ import { transitionDeal } from '../../data/deals';
 import { refreshDealCards } from './dealCardHandlers';
 import { applyDealEvent } from '../../domain/dealMachine';
 import { escapeHtml, mentionUser } from '../utils/html';
+import { sendGroupInvite } from '../../data/membership';
+import { sendKycMedia, verificationIdOf } from '../../kyc/media';
 
 /**
  * Callback-data prefixes that only the admin may trigger. Kept in one place so a
@@ -428,6 +430,10 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
 
         buttons.push([Markup.button.callback('📋 پیشنهادهای این کاربر', `ADMIN_USER_PROPS_${u.id}_0`)]);
 
+        if (verificationIdOf(u.kycResult)) {
+          buttons.push([Markup.button.callback('🔍 مدارک و ویدیوی احراز هویت', `ADMIN_USER_KYC_${u.id}`)]);
+        }
+
         let backTarget = 'ADMIN_MAIN_MENU';
         if (u.verificationStatus === 'PENDING') backTarget = 'ADMIN_LIST_PENDING';
         else if (u.verificationStatus === 'APPROVED') backTarget = 'ADMIN_LIST_APPROVED';
@@ -459,6 +465,33 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
         }
       } catch (error) {
         console.error('Error viewing user details:', error);
+      }
+      return;
+    }
+
+    if (data.startsWith('ADMIN_USER_KYC_')) {
+      const userId = parseInt(data.replace('ADMIN_USER_KYC_', ''), 10);
+      if (isNaN(userId) || !ctx.chat) return ctx.answerCbQuery();
+      const u = await prisma.user.findUnique({ where: { id: userId } });
+      const verificationId = verificationIdOf(u?.kycResult ?? null);
+      if (!u || !verificationId) {
+        await ctx.answerCbQuery('این کاربر اسکن چهره ندارد.', { show_alert: true });
+        return;
+      }
+      await ctx.answerCbQuery('در حال دریافت مدارک…');
+      const back = Markup.inlineKeyboard([[Markup.button.callback('👤 بازگشت به پرونده کاربر', `ADMIN_USER_VIEW_${u.id}`)]]);
+      try {
+        await ctx.sendChatAction('upload_photo');
+        const sent = await sendKycMedia(ctx.telegram, ctx.chat.id, verificationId);
+        await ctx.reply(
+          sent
+            ? `📁 مدارک احراز هویت <b>${escapeHtml(u.fullName || u.firstName)}</b>`
+            : '📁 مدارک و ویدیوی این کاربر طبق مدت نگهداری حذف شده‌اند.',
+          { parse_mode: 'HTML', ...back }
+        );
+      } catch (error) {
+        console.error('Error fetching KYC media:', error);
+        await ctx.reply('⚠️ دریافت مدارک از سامانهٔ احراز هویت ممکن نشد. کمی بعد دوباره امتحان کنید.', back);
       }
       return;
     }
@@ -546,22 +579,7 @@ export function registerAdminHandlers(bot: Telegraf<BotContext>) {
           data: { verificationStatus: 'APPROVED' }
         });
 
-        const inviteLink = await ctx.telegram.createChatInviteLink(config.GROUP_CHAT_ID, {
-          member_limit: 1,
-          name: `Invite for ${user.fullName}`,
-          expire_date: Math.floor(Date.now() / 1000) + 86400
-        });
-
-        const userMsg =
-          `🎉 <b>احراز هویت شما با موفقیت توسط مدیریت تایید شد!</b>\n\n` +
-          `لینک عضویت یک‌بار مصرف شما در گروه معاملاتی دانمارک (دارای اعتبار ۲۴ ساعته):\n` +
-          `🔗 ${inviteLink.invite_link}\n\n` +
-          `پس از عضویت در گروه، می‌توانید پیشنهادهای خود را از دکمه‌های زیر ثبت و مدیریت کنید.`;
-
-        await ctx.telegram.sendMessage(user.telegramId, userMsg, {
-          parse_mode: 'HTML',
-          ...mainKeyboard
-        });
+        await sendGroupInvite(ctx.telegram, user, 'احراز هویت شما با موفقیت توسط مدیریت تایید شد!');
 
         const hasPhoto = ctx.callbackQuery.message && 'photo' in ctx.callbackQuery.message;
         const confirmationText =

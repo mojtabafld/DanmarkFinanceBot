@@ -6,6 +6,7 @@ import { startDeadlineSweep } from './jobs/deadlineSweep';
 import { startDocumentRetention } from './jobs/documentRetention';
 import { pruneIdleBuckets } from './data/rateLimit';
 import * as http from 'http';
+import { handleKycResultRequest, KYC_RESULT_PATH } from './kyc/http';
 
 async function main() {
   try {
@@ -18,9 +19,14 @@ async function main() {
     await prisma.$connect();
     console.log('✅ Database connection established successfully.');
 
-    // Start a dummy HTTP server for DigitalOcean App Platform Health Checks
+    // HTTP server for DigitalOcean App Platform health checks, and for the results
+    // the face-scan KYC app sends back.
     const port = process.env.PORT || 3000;
     const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === KYC_RESULT_PATH) {
+        void handleKycResultRequest(req, res, bot.telegram);
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('OK');
     });
