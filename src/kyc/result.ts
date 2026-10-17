@@ -42,7 +42,7 @@ export function adminSummary(r: KycResult): string {
   if (d) {
     lines.push(
       `📝 <b>نام روی مدرک:</b> ${escapeHtml(documentName(r))}`,
-      `🎂 <b>تولد:</b> ${escapeHtml(d.birth_date)} · <b>ملیت:</b> ${escapeHtml(d.nationality)}`,
+      `🎂 <b>تولد:</b> ${escapeHtml(d.birth_date)} · <b>ملیت:</b> ${escapeHtml(d.nationality)} · <b>جنسیت:</b> ${escapeHtml(d.sex)}`,
       `📅 <b>انقضا:</b> ${escapeHtml(d.expiry_date)} · <b>ارقام کنترلی:</b> ${d.checks_ok ? '✅' : '❌'}`
     );
   }
@@ -52,6 +52,23 @@ export function adminSummary(r: KycResult): string {
   );
   if (r.reasons.length) lines.push(`⚠️ <b>دلایل:</b> ${escapeHtml(r.reasons.join(', '))}`);
   return lines.join('\n');
+}
+
+/** What the scan read from the user's document, shown to them after approval. */
+export function userSummary(r: KycResult): string {
+  const d = r.document;
+  if (!d) return '';
+  const rows: [string, string | null][] = [
+    ['👤 نام', documentName(r)],
+    ['🪪 مدرک', [d.document_type, d.issuing_country, d.document_number].filter(Boolean).join(' · ') || null],
+    ['🌍 ملیت', d.nationality],
+    ['🎂 تاریخ تولد', d.birth_date],
+    ['📅 تاریخ انقضا', d.expiry_date]
+  ];
+  return rows
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}: <b>${escapeHtml(v)}</b>`)
+    .join('\n');
 }
 
 /**
@@ -96,12 +113,30 @@ export async function applyKycResult(telegram: Telegram, r: KycResult): Promise<
       where: { id: user.id },
       data: { verificationStatus: 'APPROVED', fullName, rejectReason: null, kycResult: key }
     });
-    await sendGroupInvite(telegram, updated, 'احراز هویت شما با موفقیت انجام و تایید شد!');
+    // The admin hears first, so a failed invite cannot hide a new member from them.
     await telegram.sendMessage(
       config.ADMIN_CHAT_ID,
-      `✅ <b>احراز هویت با اسکن چهره تایید شد</b>\n\n${header}${adminSummary(r)}`,
+      `🆕 <b>ثبت‌نام کاربر جدید</b>\n✅ احراز هویت با اسکن چهره و مدرک تایید شد\n\n${header}${adminSummary(r)}`,
       { parse_mode: 'HTML' }
     );
+    const info = userSummary(r);
+    if (info) {
+      await telegram.sendMessage(
+        user.telegramId,
+        `✅ <b>اطلاعات تاییدشدهٔ شما</b>\n\n${info}\n\nاگر موردی اشتباه است، به پشتیبانی اطلاع دهید.`,
+        { parse_mode: 'HTML' }
+      );
+    }
+    try {
+      await sendGroupInvite(telegram, updated, 'احراز هویت شما با موفقیت انجام و تایید شد!');
+    } catch (err) {
+      console.error('Group invite after KYC approval failed:', err);
+      await telegram.sendMessage(
+        config.ADMIN_CHAT_ID,
+        `⚠️ ساخت لینک عضویت گروه برای ${mention} ناموفق بود. لطفاً دستی دعوت کنید.`,
+        { parse_mode: 'HTML' }
+      );
+    }
     return;
   }
 

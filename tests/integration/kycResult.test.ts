@@ -67,8 +67,23 @@ describeDb('face-scan KYC results', () => {
     expect(u.verificationStatus).toBe('APPROVED');
     expect(u.fullName).toBe('ANNA MARIA ERIKSSON');
     expect(tg.api.createChatInviteLink).toHaveBeenCalledOnce();
-    expect(tg.sent.map(m => String(m.chat))).toEqual(['5001', '111111']);
+    // Admin first (new member, full details), then the user's verified details, then the invite.
+    expect(tg.sent.map(m => String(m.chat))).toEqual(['111111', '5001', '5001']);
+    expect(tg.sent[0].text).toContain('ثبت‌نام کاربر جدید');
+    expect(tg.sent[0].text).toContain('D23145890');
+    expect(tg.sent[1].text).toContain('ANNA MARIA ERIKSSON');
     expect(tg.sent[1].text).toContain('D23145890');
+  });
+
+  it('still tells the admin when the group invite fails', async () => {
+    await newUser();
+    const tg = fakeTelegram();
+    tg.api.createChatInviteLink.mockRejectedValueOnce(new Error('not enough rights'));
+    await applyKycResult(tg.api, result());
+    const u = await prisma.user.findUniqueOrThrow({ where: { telegramId: '5001' } });
+    expect(u.verificationStatus).toBe('APPROVED');
+    expect(tg.sent.map(m => String(m.chat))).toEqual(['111111', '5001', '111111']);
+    expect(tg.sent[2].text).toContain('لینک عضویت');
   });
 
   it('applies a re-sent result only once', async () => {
