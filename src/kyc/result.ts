@@ -70,6 +70,15 @@ export async function applyKycResult(telegram: Telegram, r: KycResult): Promise<
   if (['APPROVED', 'DEACTIVATED', 'DELETED'].includes(user.verificationStatus)) {
     console.log(`KYC result ${r.verification_id} (${r.status}) not applied: account is ${user.verificationStatus}.`);
     await prisma.user.update({ where: { id: user.id }, data: { kycResult: key } });
+    if (user.verificationStatus === 'DELETED') {
+      // An old link used after closing the account: their details are gone, so
+      // they must sign up again before a scan can count.
+      await telegram.sendMessage(
+        user.telegramId,
+        'ℹ️ حساب شما قبلاً حذف شده است و این احراز هویت روی آن اعمال نشد.\n' +
+          'برای ثبت‌نام دوباره /start را بزنید و مراحل را از ابتدا انجام دهید.'
+      );
+    }
     return;
   }
 
