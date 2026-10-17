@@ -6,6 +6,14 @@ import { escapeHtml, mentionUser } from '../bot/utils/html';
 import { pendingVerificationKeyboard } from '../bot/utils/keyboards';
 import { kycLink, type KycResult } from './link';
 
+/** Buttons that show an admin the verification's documents and video, in the bot or on the web. */
+function mediaButtons(userId: number, panelUrl: string) {
+  return [
+    [Markup.button.callback('🔍 مشاهدهٔ مدارک و ویدیو', `ADMIN_USER_KYC_${userId}`)],
+    [Markup.button.url('🌐 پنل وب احراز هویت', panelUrl)]
+  ];
+}
+
 /** Why a scan was refused, in the user's words. Unknown codes are shown as-is. */
 const REASONS_FA: Record<string, string> = {
   circle_incomplete: 'حرکت دایره‌ای سر کامل نشد.',
@@ -119,7 +127,7 @@ export async function applyKycResult(telegram: Telegram, r: KycResult): Promise<
     await telegram.sendMessage(
       config.ADMIN_CHAT_ID,
       `🆕 <b>ثبت‌نام کاربر جدید</b>\n✅ احراز هویت با اسکن چهره و مدرک تایید شد\n\n${header}${adminSummary(r)}`,
-      { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.url('🔍 مشاهدهٔ مدارک و ویدیو', panelUrl)]]) }
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard(mediaButtons(user.id, panelUrl)) }
     );
     const info = userSummary(r);
     if (info) {
@@ -158,7 +166,7 @@ export async function applyKycResult(telegram: Telegram, r: KycResult): Promise<
             Markup.button.callback('✅ تایید احراز هویت', `APPROVE_USER_${user.id}`),
             Markup.button.callback('❌ رد احراز هویت', `REJECT_USER_${user.id}`)
           ],
-          [Markup.button.url('🔍 مشاهدهٔ مدارک و ویدیو', panelUrl)]
+          ...mediaButtons(user.id, panelUrl)
         ])
       }
     );

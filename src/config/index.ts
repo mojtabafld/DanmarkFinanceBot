@@ -28,6 +28,12 @@ export interface Config {
   KYC_BASE_URL: string;
   /** Shared with the KYC app as TELEGRAM_LINK_SECRET. Signs links and results. */
   KYC_LINK_SECRET: string;
+  /**
+   * Address the bot fetches documents and videos from, when it can reach the KYC
+   * app privately (e.g. http://web:8080 on the same DigitalOcean app). Defaults to
+   * KYC_BASE_URL.
+   */
+  KYC_INTERNAL_URL: string;
 }
 
 function getEnv(key: string, required = true): string {
@@ -77,7 +83,8 @@ const resolvers: { [K in keyof Config]: () => Config[K] } = {
   BOOTSTRAP_ADMIN_ID: () => optionalNumericEnv('BOOTSTRAP_ADMIN_ID', () => getNumericEnv('ADMIN_CHAT_ID')),
   DOCUMENT_RETENTION_HOURS: () => optionalNumericEnv('DOCUMENT_RETENTION_HOURS', () => 24),
   KYC_BASE_URL: () => getEnv('KYC_BASE_URL', false).trim().replace(/\/+$/, ''),
-  KYC_LINK_SECRET: () => getEnv('KYC_LINK_SECRET', false).trim()
+  KYC_LINK_SECRET: () => getEnv('KYC_LINK_SECRET', false).trim(),
+  KYC_INTERNAL_URL: () => getEnv('KYC_INTERNAL_URL', false).trim().replace(/\/+$/, '')
 };
 
 const cache = new Map<keyof Config, Config[keyof Config]>();
