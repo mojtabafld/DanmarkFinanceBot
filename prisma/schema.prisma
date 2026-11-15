@@ -63,6 +63,9 @@ model User {
   /// unrelated reasons and would keep pushing the deletion out.
   documentUploadedAt     DateTime?
   rejectReason           String?
+  /// "<verification id>:<status>" of the last face-scan KYC result applied, so a
+  /// result the KYC app re-sends is not applied (or announced) twice.
+  kycResult              String?
   dailyProposalLimit     Int                @default(5)
   hasPendingLimitRequest Boolean            @default(false)
   adminVerifyMsgId       Int?
